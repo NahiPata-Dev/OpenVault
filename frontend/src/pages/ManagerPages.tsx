@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { DemoAccount } from "../api/types";
+import { Badge } from "../components/UI";
 import { EmptyState, ErrorState, Loading } from "../components/Feedback";
 import { PageHeading, StatusBadge } from "../components/PageHeading";
 import { formatIST, istInputToISO, statusLabel } from "../lib/format";
@@ -20,6 +21,7 @@ interface ManagerRequest {
   end_at: string;
   status: string;
   created_at: string;
+  is_demo?: boolean;
 }
 
 interface Candidate {
@@ -66,6 +68,9 @@ export function ManagerQueuePage() {
   const [error, setError] = useState<unknown>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<unknown>(null);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [resourceFilter, setResourceFilter] = useState("all");
+  const [confirming, setConfirming] = useState<{ requestId: string; outcome: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -88,21 +93,29 @@ export function ManagerQueuePage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  async function decide(event: FormEvent<HTMLFormElement>, requestId: string) {
+  function decide(event: FormEvent<HTMLFormElement>, requestId: string) {
     event.preventDefault();
     const outcome = (event.nativeEvent as SubmitEvent).submitter;
     if (!(outcome instanceof HTMLButtonElement)) return;
+    if (!reasons[requestId]?.trim()) return;
+    setConfirming({ requestId, outcome: outcome.value });
+  }
+
+  async function confirmDecision() {
+    if (!confirming) return;
+    const { requestId, outcome } = confirming;
     const reason = reasons[requestId]?.trim() ?? "";
     if (!reason) return;
     setPendingId(requestId);
     setActionError(null);
     try {
       await api.post(`/requests/${requestId}/decision`, {
-        outcome: outcome.value,
+        outcome,
         reason,
         override_reason: null,
       });
       setReasons((current) => ({ ...current, [requestId]: "" }));
+      setConfirming(null);
       await load();
     } catch (decisionError) {
       setActionError(decisionError);
@@ -111,6 +124,12 @@ export function ManagerQueuePage() {
     }
   }
 
+  const resourceIds = [...new Set(items.map(({ request }) => request.resource_id))];
+  const filteredItems = items.filter(({ request }) =>
+    (statusFilter === "all" || request.status === statusFilter)
+    && (resourceFilter === "all" || request.resource_id === resourceFilter),
+  );
+
   return (
     <>
       <PageHeading
@@ -118,14 +137,29 @@ export function ManagerQueuePage() {
         description="Review eligibility and allocation guidance. Recommendations do not make decisions."
       />
       {actionError !== null && <ErrorState error={actionError} />}
+      <section className="panel queue-filters" aria-label="Request queue filters">
+        <label className="field-label" htmlFor="queue-status">Status</label>
+        <select id="queue-status" className="select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+          <option value="all">All statuses</option><option value="PENDING_REVIEW">Pending review</option><option value="WAITLISTED">Waitlisted</option><option value="APPROVED">Approved</option><option value="REJECTED">Rejected</option>
+        </select>
+        <label className="field-label" htmlFor="queue-resource">Resource</label>
+        <select id="queue-resource" className="select" value={resourceFilter} onChange={(event) => setResourceFilter(event.target.value)}>
+          <option value="all">All resources</option>{resourceIds.map((id) => <option value={id} key={id}>{resources.get(id) ?? id}</option>)}
+        </select>
+      </section>
       {loading && <Loading label="Loading the manager queue…" />}
       {error !== null && <ErrorState error={error} />}
-      {!loading && error === null && items.length === 0 && <EmptyState>No requests are visible in your manager queue.</EmptyState>}
-      {!loading && error === null && items.length > 0 && (
+      {!loading && error === null && filteredItems.length === 0 && <EmptyState>{items.length === 0 ? "No requests are visible in your manager queue." : "No requests match these filters."}</EmptyState>}
+      {!loading && error === null && filteredItems.length > 0 && (
         <div className="request-list">
-          {items.map(({ request, eligibility, allocation_recommendation: recommendation }) => {
+          {filteredItems.map(({ request, eligibility, allocation_recommendation: recommendation }) => {
             const snapshot = recommendation.inputs_snapshot;
             const candidate = snapshot.candidates.find((row) => row.request_id === request.id);
+            const competitors = items.filter((item) =>
+              item.request.resource_id === request.resource_id
+              && item.request.start_at === request.start_at
+              && item.request.end_at === request.end_at,
+            );
             return (
               <article className="request-card" key={request.id}>
                 <div className="card-title-row">
@@ -135,8 +169,9 @@ export function ManagerQueuePage() {
                   </div>
                   <StatusBadge value={request.status} />
                 </div>
+                {request.is_demo && <Badge>Sample data</Badge>}
                 <dl className="request-details">
-                  <div><dt>Requester</dt><dd>{users.get(request.requester_id) ?? request.requester_id}</dd></div>
+                  <div><dt>Requester</dt><dd>{users.get(request.requester_id) ?? `Account ${request.requester_id}`}</dd></div>
                   <div><dt>Requested window</dt><dd>{formatIST(request.start_at)} – {formatIST(request.end_at)}</dd></div>
                   <div><dt>Submitted</dt><dd>{formatIST(request.created_at)}</dd></div>
                   <div><dt>Eligibility</dt><dd>{eligibility.eligible ? "Eligible" : "Not eligible"}</dd></div>
@@ -159,6 +194,19 @@ export function ManagerQueuePage() {
                   )}
                   {snapshot.tie_group.length > 1 && <p>Recommendation tie: manager choice is required for {snapshot.tie_group.length} contenders.</p>}
                 </section>
+                {competitors.length > 1 && <section className="competing-requests">
+                  <h3>Competing requests for this slot</h3>
+                  <div className="comparison-grid">{competitors.map((other) => {
+                    const contender = other.allocation_recommendation.inputs_snapshot.candidates.find((row) => row.request_id === other.request.id);
+                    return <article className="comparison-card" key={other.request.id}>
+                      <strong>{users.get(other.request.requester_id) ?? `Account ${other.request.requester_id}`}</strong>
+                      <p>{statusLabel(other.request.status)} · {statusLabel(other.request.purpose)}</p>
+                      <p>{other.eligibility.eligible ? "Eligible" : `${other.eligibility.blockers.length} eligibility blocker(s)`}</p>
+                      <p>{contender ? `${contender.completed_bookings_30d} completed sessions · ${contender.booked_hours_30d} hours / 30 days` : "Usage details unavailable"}</p>
+                      <p>Recommendation: {statusLabel(other.allocation_recommendation.recommendation)}</p>
+                    </article>;
+                  })}</div>
+                </section>}
                 {request.status === "PENDING_REVIEW" && (
                   <form className="decision-form" onSubmit={(event) => void decide(event, request.id)}>
                     <label className="field-label" htmlFor={`decision-reason-${request.id}`}>Decision reason (required)</label>
@@ -178,6 +226,18 @@ export function ManagerQueuePage() {
                     </div>
                   </form>
                 )}
+                {confirming && <div className="modal-backdrop" role="presentation">
+                  <section className="confirmation-modal" role="dialog" aria-modal="true" aria-labelledby="decision-confirm-title">
+                    <h2 id="decision-confirm-title">Confirm {statusLabel(confirming.outcome)} decision</h2>
+                    <p>This records the decision and written reason in the backend audit history.</p>
+                    <blockquote>{reasons[confirming.requestId]}</blockquote>
+                    {actionError !== null && <ErrorState error={actionError} />}
+                    <div className="card-actions">
+                      <button type="button" className="button button-primary" disabled={pendingId === confirming.requestId} onClick={() => void confirmDecision()}>{pendingId === confirming.requestId ? "Saving…" : "Confirm decision"}</button>
+                      <button type="button" className="button button-secondary" disabled={pendingId === confirming.requestId} onClick={() => setConfirming(null)}>Cancel</button>
+                    </div>
+                  </section>
+                </div>}
               </article>
             );
           })}
@@ -262,7 +322,9 @@ export function TrainingPage() {
 
   return (
     <>
-      <PageHeading title="Training sign-off" description="Record a training status for a demo user and a resource requirement." />
+      <PageHeading title="Training sign-off" description="Append a verified training record for a user in your organization. Existing records are not overwritten." />
+      <p className="helper">The current API accepts valid, expired or revoked training records. It does not expose a history list or persist an auditable reason for an extension or revocation; those controls are not simulated here.</p>
+      <p className="helper">The current user selector is limited to seeded accounts because no manager-scoped user directory endpoint is available.</p>
       {loading && <Loading label="Loading users and resources…" />}
       {error !== null && <ErrorState error={error} />}
       {!loading && error === null && (
@@ -403,6 +465,8 @@ export function IncidentDetailPage() {
   const [pending, setPending] = useState(false);
   const [actionError, setActionError] = useState<unknown>(null);
   const [saved, setSaved] = useState(false);
+  const [response, setResponse] = useState("");
+  const [reviewReason, setReviewReason] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -431,6 +495,35 @@ export function IncidentDetailPage() {
       setActionError(resolveError);
     } finally {
       setPending(false);
+    }
+  }
+
+  async function addResponse(event: FormEvent<HTMLFormElement>) {
+      event.preventDefault();
+      setPending(true);
+      setActionError(null);
+      try {
+        await api.post(`/incidents/${incidentId}/responses`, { message: response.trim() });
+        setResponse("");
+        await load();
+      } catch (responseError) {
+        setActionError(responseError);
+      } finally {
+        setPending(false);
+      }
+  }
+
+  async function review(status: "under_review" | "information_requested") {
+      setPending(true);
+      setActionError(null);
+      try {
+        await api.post(`/incidents/${incidentId}/review`, { status, reason: reviewReason.trim() });
+        setReviewReason("");
+        await load();
+      } catch (reviewError) {
+        setActionError(reviewError);
+      } finally {
+        setPending(false);
     }
   }
 
@@ -471,7 +564,23 @@ export function IncidentDetailPage() {
           </div>
         )}
         {!incident.resolution && (
-          <form className="decision-form" onSubmit={(event) => void resolve(event)}>
+          <>
+          <form className="decision-form" onSubmit={(event) => void addResponse(event)}>
+            <h3>Add a response</h3>
+            <label className="field-label" htmlFor="incident-response">Response</label>
+            <textarea id="incident-response" className="textarea" required maxLength={2000} value={response} onChange={(event) => setResponse(event.target.value)} disabled={pending} />
+            <button className="button button-secondary" type="submit" disabled={pending || !response.trim()}>Add response</button>
+          </form>
+          <form className="decision-form" onSubmit={(event) => { event.preventDefault(); void review("under_review"); }}>
+            <h3>Review status</h3>
+            <label className="field-label" htmlFor="incident-review-reason">Review reason (required)</label>
+            <textarea id="incident-review-reason" className="textarea" required maxLength={2000} value={reviewReason} onChange={(event) => setReviewReason(event.target.value)} disabled={pending} />
+            <div className="card-actions">
+              <button className="button button-secondary" type="submit" disabled={pending || !reviewReason.trim()}>Begin review</button>
+              <button className="button button-secondary" type="button" disabled={pending || !reviewReason.trim()} onClick={() => void review("information_requested")}>Request information</button>
+            </div>
+          </form>
+          {incident.status === "UNDER_REVIEW" && <form className="decision-form" onSubmit={(event) => void resolve(event)}>
             <h3>Resolve incident</h3>
             <label className="field-label" htmlFor="incident-outcome">Outcome</label>
             <select id="incident-outcome" className="select" value={outcome} onChange={(event) => setOutcome(event.target.value)} disabled={pending}>
@@ -483,9 +592,80 @@ export function IncidentDetailPage() {
             {actionError !== null && <ErrorState error={actionError} />}
             {saved && <p className="result-panel result-positive" role="status">Resolution recorded by the backend.</p>}
             <button className="button button-primary mt-3" type="submit" disabled={pending || !rationale.trim()}>{pending ? "Saving…" : "Resolve incident"}</button>
-          </form>
+          </form>}
+          {incident.status !== "UNDER_REVIEW" && <p className="helper">Move this incident to “Under review” before recording a resolution or dismissal.</p>}
+          </>
         )}
+        {actionError !== null && <ErrorState error={actionError} />}
+        <p className="helper">Incident handling records facts and a human rationale. Nothing is penalized automatically.</p>
       </section>
+    </>
+  );
+}
+
+interface ManagerDashboardItem {
+  id: string;
+  type: string;
+  title: string;
+  at: string | null;
+  status: string;
+}
+
+export function ManagerSessionsPage() {
+  const [items, setItems] = useState<ManagerDashboardItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<unknown>(null);
+
+  useEffect(() => {
+    let active = true;
+    void api.get<{ next_items: ManagerDashboardItem[] }>("/dashboard/manager")
+      .then((result) => active && setItems(result.next_items.filter((item) => item.type === "upcoming_booking")))
+      .catch((loadError: unknown) => active && setError(loadError))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, []);
+
+  const dateInIST = (value: string) => new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(value));
+  const today = dateInIST(new Date().toISOString());
+  const todayItems = items.filter((item) => item.at && dateInIST(item.at) === today);
+  const upcoming = items.filter((item) => item.at && dateInIST(item.at) > today);
+
+  return (
+    <>
+      <PageHeading title="Sessions" description="Upcoming sessions returned by the manager dashboard." />
+      <p className="helper">The current API exposes at most five mixed dashboard items and has no manager booking-detail or handover-report endpoint. Condition comparisons and the complete session history cannot be loaded here.</p>
+      {loading && <Loading label="Loading upcoming sessions…" />}
+      {error !== null && <ErrorState error={error} />}
+      {!loading && error === null && items.length === 0 && <EmptyState>No upcoming sessions were present in the dashboard response.</EmptyState>}
+      {!loading && error === null && items.length > 0 && <>
+        <section className="memory-section">
+          <h2>Today</h2>
+          {todayItems.length === 0 ? <EmptyState>No sessions today in the returned items.</EmptyState> : <div className="request-list">{todayItems.map((item) => (
+            <article className="request-card" key={item.id}>
+              <div className="card-title-row"><h3>{item.title}</h3><StatusBadge value={item.status} /></div>
+              <p>{item.at ? formatIST(item.at) : "Time unavailable"}</p><p className="muted">Booking ID: {item.id}</p>
+            </article>
+          ))}</div>}
+        </section>
+        <section className="memory-section">
+          <h2>Upcoming</h2>
+          {upcoming.length === 0 ? <EmptyState>No future sessions in the returned items.</EmptyState> : <div className="request-list">{upcoming.map((item) => (
+            <article className="request-card" key={item.id}>
+              <div className="card-title-row"><h3>{item.title}</h3><StatusBadge value={item.status} /></div>
+              <p>{item.at ? formatIST(item.at) : "Time unavailable"}</p><p className="muted">Booking ID: {item.id}</p>
+            </article>
+          ))}</div>}
+        </section>
+        <section className="panel">
+          <h2>Check-in and check-out records</h2>
+          <p>These are requester-only API actions. No handover condition records are exposed to managers in the current API.</p>
+        </section>
+      </>}
     </>
   );
 }

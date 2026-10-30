@@ -1,16 +1,18 @@
 import type { ReactNode } from "react";
 import { ApiError } from "../api/client";
+import { Alert, EmptyState as UIEmptyState, Skeleton } from "./UI";
 
 export function Loading({ label = "Loading…" }: { label?: string }) {
   return (
-    <p className="feedback" role="status" aria-live="polite">
-      {label}
-    </p>
+    <div className="loading-feedback">
+      <Skeleton className="loading-skeleton" decorative />
+      <span role="status" aria-live="polite">{label}</span>
+    </div>
   );
 }
 
 export function EmptyState({ children }: { children: ReactNode }) {
-  return <p className="feedback">{children}</p>;
+  return <UIEmptyState>{children}</UIEmptyState>;
 }
 
 export function ErrorState({ error }: { error: unknown }) {
@@ -19,8 +21,7 @@ export function ErrorState({ error }: { error: unknown }) {
       ? error
       : new ApiError(0, "unknown", error instanceof Error ? error.message : "Something went wrong.");
   return (
-    <div className="error-box" role="alert">
-      <strong>{apiError.displayMessage}</strong>
+    <Alert tone="danger" title={apiError.displayMessage}>
       {apiError.details.length > 0 && (
         <ul className="mt-2 list-disc pl-5">
           {apiError.details.map((detail, index) => (
@@ -33,6 +34,6 @@ export function ErrorState({ error }: { error: unknown }) {
       {apiError.requestId && (
         <p className="mt-2 text-sm">Reference: {apiError.requestId}</p>
       )}
-    </div>
+    </Alert>
   );
 }

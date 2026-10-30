@@ -38,6 +38,27 @@ database has no users. The seed script follows the same rule and leaves a
 database containing any user unchanged; use the restricted reset endpoint to
 reset only demo rows.
 
+## Resource catalog and dashboards
+
+Authenticated users can browse detailed resource profiles at `GET /api/resources`
+and `GET /api/resources/{id}`. The catalog supports text, category, status,
+supervision, and training filters; details include readiness and a per-requirement
+eligibility checklist. Lab managers can create resources with `POST /api/resources`
+and edit only resources they own with `PATCH /api/resources/{id}`. Supply
+`policy_change_reason` when activating an initial policy or editing a resource;
+each edit creates a new active policy version and leaves existing Access Contracts
+unchanged.
+
+Requester and manager summary views are available at
+`GET /api/dashboard/requester` and `GET /api/dashboard/manager`. They include
+counts and up to five upcoming bookings, pending requests, open incidents, and
+training records expiring within 30 days.
+
+The deterministic demo seed includes six fictional resources marked as sample
+data, historical booking and training records, competing requests, a waitlist
+explanation, and audit history. Startup upgrades the legacy resource table in
+SQLite and PostgreSQL databases before serving API requests.
+
 ## Demo login
 
 The visible shared demo password is **`northstar-demo`**. The stored account

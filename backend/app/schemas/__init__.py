@@ -205,34 +205,278 @@ class WeeklyWindow(APIModel):
         return self
 
 
+def _validate_weekly_windows(windows: list[WeeklyWindow], field_name: str) -> None:
+    by_day: dict[int, list[WeeklyWindow]] = {}
+    for window in windows:
+        by_day.setdefault(window.weekday, []).append(window)
+    for day_windows in by_day.values():
+        day_windows.sort(key=lambda window: window.start)
+        if any(
+            current.start < previous.end
+            for previous, current in zip(day_windows, day_windows[1:])
+        ):
+            raise ValueError(f"{field_name} windows must not overlap.")
+
+
+ResourceStatus = Literal["active", "maintenance_hold", "retired"]
+AllowedUse = Literal["project", "coursework", "research"]
+
+
+def _trim_text_list(values: list[str] | None) -> list[str] | None:
+    if values is None:
+        return None
+    cleaned = [item.strip() for item in values]
+    if any(not item for item in cleaned):
+        raise ValueError("List entries must not be blank")
+    if len({item.casefold() for item in cleaned}) != len(cleaned):
+        raise ValueError("List entries must not contain duplicates")
+    return cleaned
+
+
 class ResourceCreate(APIModel):
     name: str = Field(min_length=1, max_length=160)
     category: str = Field(min_length=1, max_length=80)
+    short_summary: str = Field(default="", max_length=400)
+    description: str = Field(default="", max_length=8000)
     capability_tags: list[str] = Field(default_factory=list, max_length=100)
-    location: str = Field(min_length=1, max_length=160)
-    status: Literal["active", "maintenance_hold"] = "active"
+    location: str = Field(default="", max_length=160)
+    building: str = Field(default="", max_length=160)
+    room: str = Field(default="", max_length=80)
+    address_note: str = Field(default="", max_length=1000)
+    operating_hours: list[WeeklyWindow] = Field(default_factory=list, max_length=21)
+    weekly_operating_hours: list[WeeklyWindow] | None = Field(default=None, max_length=21)
+    capacity: int | None = Field(default=None, ge=1, le=100_000)
+    quantity: int | None = Field(default=None, ge=1, le=100_000)
+    allowed_uses: list[AllowedUse] | None = Field(default=None, min_length=1, max_length=3)
+    who_can_use: list[str] = Field(default_factory=list, max_length=30)
+    required_training: list[str] = Field(default_factory=list, max_length=50)
+    supervision_required: bool = False
+    supervised_windows: list[WeeklyWindow] = Field(default_factory=list, max_length=21)
+    usage_rules: list[str] = Field(default_factory=list, max_length=50)
+    safety_notes: list[str] = Field(default_factory=list, max_length=50)
+    max_session_hours: float | None = Field(default=None, gt=0, le=168)
+    advance_booking_window: int | None = Field(
+        default=None, ge=0, le=365, description="Maximum advance booking in days."
+    )
+    cancellation_cutoff: float = Field(
+        default=2, ge=0, le=720, description="Cancellation cutoff before start, in hours."
+    )
+    accessories_included: list[str] = Field(default_factory=list, max_length=50)
+    condition_notes: str = Field(default="", max_length=2000)
+    status: ResourceStatus = "active"
+    hold_reason: str | None = Field(default=None, max_length=2000)
     hold_review_date: date | None = None
-    weekly_operating_hours: list[WeeklyWindow] = Field(max_length=21)
-    max_duration_minutes: int | None = Field(default=None, gt=0)
+    max_duration_minutes: int | None = Field(default=None, gt=0, le=10080)
     exclusive_booking: bool = True
+    policy_change_reason: str | None = Field(default=None, min_length=1, max_length=2000)
 
     @model_validator(mode="after")
-    def hold_requires_review_date(self):
-        if self.status == "maintenance_hold" and self.hold_review_date is None:
-            raise ValueError("hold_review_date is required for a maintenance hold")
+    def validate_resource(self):
+        if self.weekly_operating_hours is not None:
+            if self.operating_hours and self.operating_hours != self.weekly_operating_hours:
+                raise ValueError("operating_hours and weekly_operating_hours must match when both are supplied")
+            self.operating_hours = self.weekly_operating_hours
+        if self.capacity is not None and self.quantity is not None:
+            raise ValueError("Provide capacity or quantity, not both")
+        if self.status == "maintenance_hold":
+            if self.hold_review_date is None:
+                raise ValueError("hold_review_date is required for a maintenance hold")
+            if not self.hold_reason:
+                raise ValueError("hold_reason is required for a maintenance hold")
+        if self.status != "maintenance_hold" and self.hold_reason:
+            raise ValueError("hold_reason is only valid for a maintenance hold")
+        if self.supervision_required and not self.supervised_windows:
+            raise ValueError("supervised_windows are required when supervision_required is true")
+        _validate_weekly_windows(self.operating_hours, "operating_hours")
+        _validate_weekly_windows(self.supervised_windows, "supervised_windows")
+        if (
+            self.max_session_hours is not None
+            and self.max_duration_minutes is not None
+            and round(self.max_session_hours * 60) != self.max_duration_minutes
+        ):
+            raise ValueError("max_session_hours and max_duration_minutes must match.")
+        if self.allowed_uses is not None and not self.policy_change_reason:
+            raise ValueError("policy_change_reason is required when activating an initial policy")
         return self
+
+    @property
+    def resolved_operating_hours(self) -> list[WeeklyWindow]:
+        return self.operating_hours
+
+    @field_validator(
+        "capability_tags",
+        "who_can_use",
+        "required_training",
+        "usage_rules",
+        "safety_notes",
+        "accessories_included",
+    )
+    @classmethod
+    def normalize_lists(cls, values):
+        return _trim_text_list(values)
+
+    @field_validator(
+        "name",
+        "category",
+        "short_summary",
+        "description",
+        "location",
+        "building",
+        "room",
+        "address_note",
+        "condition_notes",
+        mode="before",
+    )
+    @classmethod
+    def trim_resource_text(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("hold_reason", mode="before")
+    @classmethod
+    def trim_hold_reason(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("policy_change_reason", mode="before")
+    @classmethod
+    def normalize_optional_policy_change_reason(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
 
 
 class ResourcePatch(APIModel):
     name: str | None = Field(default=None, min_length=1, max_length=160)
     category: str | None = Field(default=None, min_length=1, max_length=80)
+    short_summary: str | None = Field(default=None, max_length=400)
+    description: str | None = Field(default=None, max_length=8000)
     capability_tags: list[str] | None = Field(default=None, max_length=100)
-    location: str | None = Field(default=None, min_length=1, max_length=160)
-    status: Literal["active", "maintenance_hold"] | None = None
-    hold_review_date: date | None = None
+    location: str | None = Field(default=None, max_length=160)
+    building: str | None = Field(default=None, max_length=160)
+    room: str | None = Field(default=None, max_length=80)
+    address_note: str | None = Field(default=None, max_length=1000)
+    operating_hours: list[WeeklyWindow] | None = Field(default=None, max_length=21)
     weekly_operating_hours: list[WeeklyWindow] | None = Field(default=None, max_length=21)
-    max_duration_minutes: int | None = Field(default=None, gt=0)
+    capacity: int | None = Field(default=None, ge=1, le=100_000)
+    quantity: int | None = Field(default=None, ge=1, le=100_000)
+    allowed_uses: list[AllowedUse] | None = Field(default=None, min_length=1, max_length=3)
+    who_can_use: list[str] | None = Field(default=None, max_length=30)
+    required_training: list[str] | None = Field(default=None, max_length=50)
+    supervision_required: bool | None = None
+    supervised_windows: list[WeeklyWindow] | None = Field(default=None, max_length=21)
+    usage_rules: list[str] | None = Field(default=None, max_length=50)
+    safety_notes: list[str] | None = Field(default=None, max_length=50)
+    max_session_hours: float | None = Field(default=None, gt=0, le=168)
+    advance_booking_window: int | None = Field(default=None, ge=0, le=365)
+    cancellation_cutoff: float | None = Field(
+        default=None, ge=0, le=720, description="Cancellation cutoff before start, in hours."
+    )
+    accessories_included: list[str] | None = Field(default=None, max_length=50)
+    condition_notes: str | None = Field(default=None, max_length=2000)
+    status: ResourceStatus | None = None
+    hold_reason: str | None = Field(default=None, max_length=2000)
+    hold_review_date: date | None = None
+    max_duration_minutes: int | None = Field(default=None, gt=0, le=10080)
     exclusive_booking: bool | None = None
+    policy_change_reason: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_patch(self):
+        if self.weekly_operating_hours is not None:
+            if self.operating_hours is not None and self.operating_hours != self.weekly_operating_hours:
+                raise ValueError("operating_hours and weekly_operating_hours must match when both are supplied")
+            self.operating_hours = self.weekly_operating_hours
+        if self.capacity is not None and self.quantity is not None:
+            raise ValueError("Provide capacity or quantity, not both")
+        if self.supervision_required is True and self.supervised_windows == []:
+            raise ValueError("supervised_windows are required when supervision_required is true")
+        for field_name in (
+            "name",
+            "category",
+            "short_summary",
+            "description",
+            "capability_tags",
+            "location",
+            "building",
+            "room",
+            "address_note",
+            "operating_hours",
+            "weekly_operating_hours",
+            "allowed_uses",
+            "who_can_use",
+            "required_training",
+            "supervision_required",
+            "supervised_windows",
+            "usage_rules",
+            "safety_notes",
+            "cancellation_cutoff",
+            "accessories_included",
+            "condition_notes",
+            "status",
+            "exclusive_booking",
+        ):
+            if field_name in self.model_fields_set and getattr(self, field_name) is None:
+                raise ValueError(f"{field_name} cannot be null.")
+        if self.operating_hours is not None:
+            _validate_weekly_windows(self.operating_hours, "operating_hours")
+        if self.supervised_windows is not None:
+            _validate_weekly_windows(self.supervised_windows, "supervised_windows")
+        if (
+            self.max_session_hours is not None
+            and self.max_duration_minutes is not None
+            and round(self.max_session_hours * 60) != self.max_duration_minutes
+        ):
+            raise ValueError("max_session_hours and max_duration_minutes must match.")
+        if "status" in self.model_fields_set and self.status == "maintenance_hold":
+            if "hold_reason" not in self.model_fields_set and "hold_review_date" not in self.model_fields_set:
+                return self
+            if self.hold_reason == "":
+                raise ValueError("hold_reason is required for a maintenance hold")
+        if self.status in {"active", "retired"} and self.hold_reason:
+            raise ValueError("hold_reason is only valid for a maintenance hold")
+        return self
+
+    @field_validator(
+        "capability_tags",
+        "who_can_use",
+        "required_training",
+        "usage_rules",
+        "safety_notes",
+        "accessories_included",
+    )
+    @classmethod
+    def normalize_lists(cls, values):
+        return _trim_text_list(values)
+
+    @field_validator(
+        "name",
+        "category",
+        "short_summary",
+        "description",
+        "location",
+        "building",
+        "room",
+        "address_note",
+        "condition_notes",
+        mode="before",
+    )
+    @classmethod
+    def trim_resource_text(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("hold_reason", mode="before")
+    @classmethod
+    def trim_hold_reason(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("policy_change_reason")
+    @classmethod
+    def normalize_policy_change_reason(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("policy_change_reason must not be blank")
+        return value
+
+
+ResourceCreate.model_rebuild()
+ResourcePatch.model_rebuild()
 
 
 class ResourcePolicyRead(APIModel):
@@ -253,11 +497,32 @@ class ResourceRead(APIModel):
     owner_id: UUID
     name: str
     category: str
+    short_summary: str
+    description: str
     capability_tags: list[str]
     location: str
+    building: str
+    room: str
+    address_note: str
     status: str
+    hold_reason: str | None
     hold_review_date: date | None
+    operating_hours: list[WeeklyWindow]
     weekly_operating_hours: list[WeeklyWindow]
+    capacity: int | None
+    quantity: int | None
+    allowed_uses: list[AllowedUse]
+    who_can_use: list[str]
+    required_training: list[str]
+    supervision_required: bool
+    supervised_windows: list[WeeklyWindow]
+    usage_rules: list[str]
+    safety_notes: list[str]
+    max_session_hours: float | None
+    advance_booking_window: int | None
+    cancellation_cutoff: float
+    accessories_included: list[str]
+    condition_notes: str
     max_duration_minutes: int | None
     exclusive_booking: bool
     is_demo: bool
@@ -279,11 +544,21 @@ class ResourceListItem(APIModel):
     id: UUID
     name: str
     category: str
+    short_summary: str
+    description: str
     capability_tags: list[str]
     location: str
+    building: str
+    room: str
+    capacity: int | None
+    quantity: int | None
     status: str
+    supervision_required: bool
+    required_training: list[str]
+    operating_hours: list[WeeklyWindow]
     weekly_operating_hours: list[WeeklyWindow]
     readiness: ReadinessRead
+    next_availability: datetime | None
 
 
 class ResourceListResponse(APIModel):
@@ -291,10 +566,19 @@ class ResourceListResponse(APIModel):
     total: int
 
 
+class EligibilityChecklistItem(APIModel):
+    requirement: str
+    code: str | None = None
+    passed: bool
+    message: str
+    next_action: str
+
+
 class ResourceResponse(APIModel):
     resource: ResourceRead
     active_policy: ResourcePolicyRead | None = None
     readiness: ReadinessRead
+    eligibility_checklist: list[EligibilityChecklistItem]
 
 
 class ErrorDetail(APIModel):

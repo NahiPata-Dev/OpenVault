@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -33,15 +33,27 @@ def evaluate_eligibility(
     if (
         start_at is not None
         and end_at is not None
-        and resource.max_duration_minutes is not None
-        and (end_at - start_at).total_seconds()
-        > resource.max_duration_minutes * 60
+        and (
+            resource.max_session_hours is not None
+            and (end_at - start_at).total_seconds()
+            > resource.max_session_hours * 3600
+            or resource.max_duration_minutes is not None
+            and (end_at - start_at).total_seconds()
+            > resource.max_duration_minutes * 60
+        )
     ):
         raise_api_error(
             "validation_error",
             "The requested interval exceeds the resource maximum duration.",
             422,
         )
+    if start_at is not None and resource.advance_booking_window is not None:
+        if start_at > datetime.now(start_at.tzinfo) + timedelta(days=resource.advance_booking_window):
+            raise_api_error(
+                "validation_error",
+                "The requested start is outside the resource advance-booking window.",
+                422,
+            )
     return evaluate_readiness(
         session, user, resource, start_at, end_at, exclude_booking_id
     )

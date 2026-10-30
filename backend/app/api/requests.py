@@ -391,9 +391,15 @@ def cancel_request(
     else:
         raise_api_error("forbidden", "You are not authorized to cancel this request.", 403)
     if row.status == "APPROVED":
-        cutoff = _as_utc(row.start_at) - timedelta(hours=2)
+        cutoff = _as_utc(row.start_at) - timedelta(
+            hours=row.resource.cancellation_cutoff
+        )
         if datetime.now(timezone.utc) > cutoff:
-            raise_api_error("invalid_state", "Cancellation is closed less than two hours before start.", 409)
+            raise_api_error(
+                "invalid_state",
+                "Cancellation is closed inside the resource cancellation cutoff.",
+                409,
+            )
     apply_transition(
         session,
         row,

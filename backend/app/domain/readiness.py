@@ -25,6 +25,10 @@ BLOCKERS = {
         "This resource is on maintenance hold and cannot be booked.",
         "The resource owner or lab manager reviews the hold; it is not released automatically.",
     ),
+    "resource_retired": (
+        "This resource has been retired and is no longer available for booking.",
+        "Choose an active resource or ask the resource manager about its status.",
+    ),
     "missing_training": (
         "Required training is missing, expired, or not verified for this resource.",
         "Ask the authorized training owner to record a verified sign-off.",
@@ -41,6 +45,7 @@ BLOCKERS = {
 BLOCKER_ORDER = (
     "policy_missing",
     "maintenance_hold",
+    "resource_retired",
     "missing_training",
     "supervisor_unavailable",
     "slot_conflict",
@@ -75,6 +80,8 @@ def evaluate_readiness(
         found.add("policy_missing")
     if resource.status == "maintenance_hold":
         found.add("maintenance_hold")
+    elif resource.status == "retired":
+        found.add("resource_retired")
 
     requirements = policy.structured_requirements if policy else {}
     now = datetime.now(timezone.utc)

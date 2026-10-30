@@ -18,12 +18,18 @@ from app.api.account import router as account_router
 from app.api.ai import router as ai_router
 from app.api.analytics import router as analytics_router
 from app.api.bookings import router as bookings_router
+from app.api.dashboard import router as dashboard_router
 from app.api.incidents import router as incidents_router
 from app.api.notifications import router as notifications_router
 from app.api.policies import router as policies_router
 from app.api.requests import router as requests_router
 from app.api.resources import router as resources_router
-from app.database import Base, build_engine, build_session_factory
+from app.database import (
+    Base,
+    build_engine,
+    build_session_factory,
+    migrate_legacy_resource_schema,
+)
 from app.errors import APIError
 from app.models import (
     AccessContract,
@@ -272,6 +278,7 @@ def create_app(
     app.include_router(analytics_router)
     app.include_router(audit_router)
     app.include_router(bookings_router)
+    app.include_router(dashboard_router)
     app.include_router(incidents_router)
     app.include_router(notifications_router)
     app.include_router(policies_router)
@@ -286,6 +293,7 @@ def create_app(
     def initialize_schema() -> None:
         if initialize_database:
             Base.metadata.create_all(bind=engine)
+            migrate_legacy_resource_schema(engine)
             with app.state.session_factory() as session:
                 has_users = session.scalar(select(User.id).limit(1)) is not None
             if not has_users:

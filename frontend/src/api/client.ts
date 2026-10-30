@@ -63,7 +63,13 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     );
   }
 
-  if (response.status === 401) {
+  const isPublicAuthRequest = [
+    "/auth/session",
+    "/auth/login",
+    "/auth/register",
+    "/auth/demo-login",
+  ].includes(path);
+  if (response.status === 401 && !isPublicAuthRequest) {
     if (window.location.pathname !== "/login") {
       window.location.assign("/login");
     }

@@ -15,7 +15,8 @@ interface AuthContextValue {
   accounts: DemoAccount[];
   loading: boolean;
   accountsError: string | null;
-  signIn: (accountId: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<void>;
+  signInDemo: (accountId: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -44,7 +45,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const signIn = useCallback(async (accountId: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string) => {
+    const result = await api.post<{ user: User }>("/auth/login", {
+      email,
+      password,
+    });
+    setUser(result.user);
+  }, []);
+
+  const signInDemo = useCallback(async (accountId: string, password: string) => {
     const result = await api.post<{ user: User }>("/auth/demo-login", {
       account_id: accountId,
       password,
@@ -58,8 +67,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, accounts, loading, accountsError, signIn, signOut }),
-    [user, accounts, loading, accountsError, signIn, signOut],
+    () => ({ user, accounts, loading, accountsError, signIn, signInDemo, signOut }),
+    [user, accounts, loading, accountsError, signIn, signInDemo, signOut],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

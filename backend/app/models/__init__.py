@@ -7,6 +7,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Float,
     Index,
     Integer,
     String,
@@ -103,7 +104,7 @@ class Resource(Base):
     __tablename__ = "resources"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('active', 'maintenance_hold')",
+            "status IN ('active', 'maintenance_hold', 'retired')",
             name="ck_resources_status",
         ),
         CheckConstraint(
@@ -121,11 +122,31 @@ class Resource(Base):
     owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     category: Mapped[str] = mapped_column(String(80), nullable=False)
+    short_summary: Mapped[str] = mapped_column(String(400), nullable=False, default="")
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     capability_tags: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     location: Mapped[str] = mapped_column(String(160), nullable=False)
+    building: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    room: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    address_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    hold_reason: Mapped[str | None] = mapped_column(Text)
     hold_review_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     weekly_operating_hours: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
+    capacity: Mapped[int | None] = mapped_column(Integer)
+    quantity: Mapped[int | None] = mapped_column(Integer)
+    allowed_uses: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    who_can_use: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    required_training: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    supervision_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    supervised_windows: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
+    usage_rules: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    safety_notes: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    max_session_hours: Mapped[float | None] = mapped_column(Float)
+    advance_booking_window: Mapped[int | None] = mapped_column(Integer)
+    cancellation_cutoff: Mapped[float] = mapped_column(Float, nullable=False, default=2)
+    accessories_included: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    condition_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
     max_duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     exclusive_booking: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
