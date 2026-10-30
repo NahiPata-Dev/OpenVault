@@ -1,0 +1,41 @@
+from collections.abc import Callable
+from uuid import UUID
+
+from fastapi import Depends, Request
+from sqlalchemy.orm import Session
+
+from app.database import get_session
+from app.errors import raise_api_error
+from app.models import User
+
+
+def get_current_user(
+    request: Request,
+    session: Session = Depends(get_session),
+) -> User:
+    user_id = request.session.get("user_id")
+    if not isinstance(user_id, str):
+        raise_api_error("forbidden", "Authentication is required.", 401)
+    try:
+        user_id = str(UUID(user_id))
+    except ValueError:
+        request.session.clear()
+        raise_api_error("forbidden", "Authentication is required.", 401)
+    user = session.get(User, user_id)
+    if user is None or not user.is_demo:
+        request.session.clear()
+        raise_api_error("forbidden", "Authentication is required.", 401)
+    return user
+
+
+def require_roles(*roles: str) -> Callable:
+    def dependency(user: User = Depends(get_current_user)) -> User:
+        if user.role not in roles:
+            raise_api_error(
+                "forbidden",
+                "You are not authorized to perform this action.",
+                403,
+            )
+        return user
+
+    return dependency
