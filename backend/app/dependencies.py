@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_session
 from app.errors import raise_api_error
-from app.models import User
+from app.models import AccountProfile, User
 
 
 def get_current_user(
@@ -22,7 +22,16 @@ def get_current_user(
         request.session.clear()
         raise_api_error("forbidden", "Authentication is required.", 401)
     user = session.get(User, user_id)
-    if user is None or not user.is_demo:
+    profile = session.get(AccountProfile, user_id)
+    if user is None or (not user.is_demo and profile is None):
+        request.session.clear()
+        raise_api_error("forbidden", "Authentication is required.", 401)
+    if profile is not None and not profile.is_active:
+        request.session.clear()
+        raise_api_error("forbidden", "Authentication is required.", 401)
+    if request.session.get("auth_version", 0) != (
+        profile.auth_version if profile is not None else 0
+    ):
         request.session.clear()
         raise_api_error("forbidden", "Authentication is required.", 401)
     return user

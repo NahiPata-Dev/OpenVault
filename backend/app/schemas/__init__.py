@@ -1,8 +1,9 @@
 from datetime import date, datetime
+import re
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class APIModel(BaseModel):
@@ -34,6 +35,162 @@ class UserRead(APIModel):
 
 class DemoLoginResponse(APIModel):
     user: UserRead
+
+
+class AccountRegister(APIModel):
+    full_name: str = Field(min_length=1, max_length=120)
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=10, max_length=256)
+    organization_name: str | None = Field(default=None, max_length=200)
+    intended_use: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("full_name", mode="before")
+    @classmethod
+    def normalize_full_name(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value):
+        if not isinstance(value, str):
+            return value
+        email = value.strip().lower()
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            raise ValueError("email must be a valid email address")
+        return email
+
+    @field_validator("password")
+    @classmethod
+    def require_non_numeric_password(cls, value: str) -> str:
+        if value.isdigit():
+            raise ValueError("password must not contain only digits")
+        return value
+
+    @field_validator("organization_name", "intended_use", mode="before")
+    @classmethod
+    def normalize_optional_text(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
+
+
+class AccountLogin(APIModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=256)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value):
+        if not isinstance(value, str):
+            return value
+        email = value.strip().lower()
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            raise ValueError("email must be a valid email address")
+        return email
+
+
+class AccountRead(APIModel):
+    id: UUID
+    full_name: str
+    email: str | None
+    organization_name: str | None
+    phone: str | None
+    intended_use: str | None
+    role: str
+    status: Literal["active", "inactive"]
+
+
+class AccountPatch(APIModel):
+    full_name: str | None = Field(default=None, min_length=1, max_length=120)
+    organization_name: str | None = Field(default=None, max_length=200)
+    phone: str | None = Field(default=None, max_length=40)
+    intended_use: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("full_name", mode="before")
+    @classmethod
+    def normalize_full_name(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("organization_name", "phone", "intended_use", mode="before")
+    @classmethod
+    def normalize_optional_text(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def validate_full_name(self):
+        if "full_name" in self.model_fields_set and self.full_name is None:
+            raise ValueError("full_name cannot be null")
+        return self
+
+
+class ChangePassword(APIModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=10, max_length=256)
+
+    @field_validator("new_password")
+    @classmethod
+    def require_non_numeric_password(cls, value: str) -> str:
+        if value.isdigit():
+            raise ValueError("password must not contain only digits")
+        return value
+
+
+class OwnerApplicationCreate(APIModel):
+    organization: str = Field(min_length=1, max_length=200)
+    role_in_organization: str = Field(min_length=1, max_length=160)
+    reason: str = Field(min_length=1, max_length=2000)
+    resources_to_list: str = Field(min_length=1, max_length=2000)
+
+    @field_validator(
+        "organization", "role_in_organization", "reason", "resources_to_list"
+    )
+    @classmethod
+    def trim_required_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("value must not be blank")
+        return value
+
+
+class OwnerApplicationDecision(APIModel):
+    outcome: Literal["approved", "rejected"]
+    reason: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("reason")
+    @classmethod
+    def trim_reason(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("reason must not be blank")
+        return value
+
+
+class OwnerApplicationRead(APIModel):
+    id: UUID
+    applicant_id: UUID
+    applicant_name: str
+    applicant_email: str | None
+    organization: str
+    role_in_organization: str
+    reason: str
+    resources_to_list: str
+    status: Literal["pending", "approved", "rejected"]
+    decision_reason: str | None
+    decided_by: UUID | None
+    created_at: datetime
+    decided_at: datetime | None
+
+
+class OwnerApplicationResponse(APIModel):
+    application: OwnerApplicationRead | None
+
+
+class AdminUserRead(APIModel):
+    id: UUID
+    full_name: str
+    email: str | None
+    organization_name: str | None
+    role: str
+    status: Literal["active", "inactive"]
+    is_demo: bool
 
 
 class WeeklyWindow(APIModel):

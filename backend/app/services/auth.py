@@ -3,10 +3,10 @@ import hmac
 import secrets
 
 
-def hash_password(password: str) -> str:
+def hash_password(password: str, rounds: int = 240_000) -> str:
     salt = secrets.token_bytes(16)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 240_000)
-    return f"pbkdf2_sha256$240000${salt.hex()}${digest.hex()}"
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, rounds)
+    return f"pbkdf2_sha256${rounds}${salt.hex()}${digest.hex()}"
 
 
 def verify_password(password: str, encoded_hash: str) -> bool:
@@ -15,8 +15,11 @@ def verify_password(password: str, encoded_hash: str) -> bool:
         if algorithm != "pbkdf2_sha256":
             return False
         expected = bytes.fromhex(digest_hex)
+        rounds_count = int(rounds)
+        if rounds_count < 1 or rounds_count > 2_000_000:
+            return False
         actual = hashlib.pbkdf2_hmac(
-            "sha256", password.encode(), bytes.fromhex(salt_hex), int(rounds), len(expected)
+            "sha256", password.encode(), bytes.fromhex(salt_hex), rounds_count, len(expected)
         )
     except (ValueError, TypeError):
         return False

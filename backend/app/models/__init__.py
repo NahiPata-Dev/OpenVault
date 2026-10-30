@@ -45,6 +45,60 @@ class User(Base):
     notifications: Mapped[list["Notification"]] = relationship(back_populates="recipient")
 
 
+class AccountProfile(Base):
+    __tablename__ = "account_profiles"
+    __table_args__ = (
+        UniqueConstraint("email"),
+        Index("ix_account_profiles_active", "is_active"),
+    )
+
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    full_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    organization_name: Mapped[str | None] = mapped_column(String(200))
+    phone: Mapped[str | None] = mapped_column(String(40))
+    intended_use: Mapped[str | None] = mapped_column(Text)
+    email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    auth_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class OwnerApplication(Base):
+    __tablename__ = "owner_applications"
+    __table_args__ = (
+        Index("ix_owner_applications_status_created", "status", "created_at"),
+        Index("ix_owner_applications_applicant_created", "applicant_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True)
+    applicant_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    organization: Mapped[str] = mapped_column(String(200), nullable=False)
+    role_in_organization: Mapped[str] = mapped_column(String(160), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    resources_to_list: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="pending")
+    decision_reason: Mapped[str | None] = mapped_column(Text)
+    decided_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class LoginAttempt(Base):
+    __tablename__ = "login_attempts"
+    __table_args__ = (
+        Index("ix_login_attempts_account_time", "account_key", "failed_at"),
+        Index("ix_login_attempts_ip_time", "ip_key", "failed_at"),
+    )
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True)
+    account_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    ip_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    failed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class Resource(Base):
     __tablename__ = "resources"
     __table_args__ = (
