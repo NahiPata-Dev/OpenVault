@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import Base, build_engine, build_session_factory
 from app.models import (
+    AccountProfile,
     AccessContract,
     AllocationDecision,
     AuditEvent,
@@ -281,6 +282,28 @@ def seed_database(
         }
         session.add_all(users.values())
         session.flush()
+
+        demo_intents = {
+            "requester_a": "Electronics prototyping and measurement projects",
+            "requester_b": "Photography, video production and project documentation",
+            "requester_c": "Collaborative coursework and team project planning",
+            "lab_manager": "Shared equipment maintenance and supervised lab access",
+            "institution_admin": "Institution resource readiness and access oversight",
+            "judge_auditor": "Reviewing sample resource decisions and audit history",
+        }
+        session.add_all(
+            AccountProfile(
+                user_id=user.id,
+                email=f"{key}@example.invalid",
+                full_name=user.display_name,
+                organization_name="Northstar Engineering Lab (DEMO)",
+                intended_use=demo_intents[key],
+                email_verified=False,
+                is_active=True,
+                auth_version=0,
+            )
+            for key, user in users.items()
+        )
 
         open_hours = [
             {"weekday": weekday, "start": "00:00", "end": "23:59"}
@@ -730,6 +753,9 @@ def seed_database(
 
 
 def reset_demo_data(session: Session) -> None:
+    session.execute(
+        delete(AccountProfile).where(AccountProfile.user_id.in_(DEMO_USER_IDS.values()))
+    )
     for model in (
         Notification,
         Incident,

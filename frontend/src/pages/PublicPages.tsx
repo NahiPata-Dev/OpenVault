@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { ApiError, api } from "../api/client";
+import { ApiError, api, apiUrl } from "../api/client";
 import type { DemoAccount, Role } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { PageHeading } from "../components/PageHeading";
@@ -11,7 +11,6 @@ import {
   Card,
   EmptyState,
   Input,
-  Stepper,
   Tabs,
   Textarea,
   Toast,
@@ -24,6 +23,25 @@ const roleLabels: Record<Role, string> = {
   institution_admin: "Institution admin",
   auditor: "Judge auditor",
 };
+
+interface ChatResource {
+  resource_id: string;
+  name: string;
+  location: string;
+  ready: boolean;
+  explanation: string;
+}
+
+interface AIChatResponse {
+  reply: string;
+  resources: ChatResource[];
+  disclosure: string;
+}
+
+interface AssistantMessage {
+  role: "user" | "assistant";
+  text: string;
+}
 
 function errorText(error: unknown): string {
   return error instanceof ApiError
@@ -48,13 +66,96 @@ function fieldErrors(error: unknown): Record<string, string> {
 export function LandingPage() {
   const { user } = useAuth();
   const browsePath = user ? "/resources" : "/login?next=%2Fresources";
+  const [goal, setGoal] = useState("");
+  const [conversation, setConversation] = useState<AssistantMessage[]>([]);
+  const [aiAvailable, setAIAvailable] = useState<boolean | null>(null);
+  const [matches, setMatches] = useState<ChatResource[]>([]);
+  const [aiDisclosure, setAIDisclosure] = useState("");
+  const [matchMessage, setMatchMessage] = useState("");
+  const [matching, setMatching] = useState(false);
+  const [feedbackSent, setFeedbackSent] = useState(false);
+  const [feedbackSaving, setFeedbackSaving] = useState(false);
+  const [feedbackError, setFeedbackError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    void api.get<{ available: boolean }>("/ai/status").then(
+      ({ available }) => active && setAIAvailable(available),
+      () => active && setAIAvailable(false),
+    );
+    return () => { active = false; };
+  }, []);
+
+  async function processAssistantMessage(requestGoal: string, searchNow = false) {
+    if (!requestGoal && !searchNow) {
+      setMatchMessage("Send a message to continue the conversation.");
+      return;
+    }
+    if (aiAvailable !== true) {
+      setMatchMessage("AI chat is not configured for this deployment.");
+      return;
+    }
+    setMatching(true);
+    setMatches([]);
+    setMatchMessage("");
+    setFeedbackSent(false);
+    setFeedbackError("");
+    const userMessage = searchNow ? "Find matching resources for my plan." : requestGoal;
+    const nextMessages = [
+      ...conversation,
+      { role: "user" as const, text: userMessage },
+    ].slice(-16);
+    try {
+      const response = await api.post<AIChatResponse>("/ai/chat", {
+        messages: nextMessages.map(({ role, text }) => ({ role, content: text })),
+      });
+      setMatches(response.resources);
+      setAIDisclosure(response.disclosure);
+      setConversation([
+        ...nextMessages,
+        { role: "assistant" as const, text: response.reply },
+      ].slice(-12));
+      setGoal("");
+    } catch (error) {
+      setMatchMessage(errorText(error));
+    } finally {
+      setMatching(false);
+    }
+  }
+
+  function submitAssistantMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void processAssistantMessage(goal.trim());
+  }
+
+  function startFreshSearch() {
+    setGoal("");
+    setConversation([]);
+    setMatches([]);
+    setAIDisclosure("");
+    setMatchMessage("");
+    setFeedbackSent(false);
+    setFeedbackError("");
+  }
+
+  async function sendMatchFeedback(isHelpful: boolean) {
+    setFeedbackSaving(true);
+    setFeedbackError("");
+    try {
+      await api.post("/feedback", { is_helpful: isHelpful });
+      setFeedbackSent(true);
+    } catch (error) {
+      setFeedbackError(errorText(error));
+    } finally {
+      setFeedbackSaving(false);
+    }
+  }
+
   return (
     <div className="public-page">
       <header className="public-header">
         <Link className="brand" to="/" aria-label="OpenVault home">openvault<span aria-hidden="true">.</span></Link>
         <nav className="public-nav" aria-label="Public navigation">
-          <a href="#how-it-works">How it works</a>
-          <a href="#features">Features</a>
           {user ? (
             <Link className="button button-secondary" to="/resources">Open workspace</Link>
           ) : (
@@ -67,108 +168,99 @@ export function LandingPage() {
       </header>
 
       <main>
-        <section className="hero-section">
-          <div className="hero-copy">
-            <p className="eyebrow"><span className="eyebrow-dot" /> SHARED LAB RESOURCES, MADE ACCESSIBLE</p>
-            <h1>Make more of the equipment you already have.</h1>
-            <p className="hero-description">
-              OpenVault helps institutions share equipment and spaces through clear eligibility,
-              accountable decisions and safer, fairer bookings.
-            </p>
-            <div className="hero-actions">
-              <Link className="button button-primary button-large" to={browsePath}>Browse resources <span aria-hidden="true">→</span></Link>
-              {!user && <Link className="text-link" to="/signup">Create an account</Link>}
+        <section className="hero-section assistant-hero">
+          <div className="assistant-intro">
+            <p className="eyebrow"><span className="eyebrow-dot" /> OPENVAULT RESOURCE GUIDE</p>
+            <h1>What are you working on?</h1>
+            <p>Describe your project, class, or research. Find equipment and spaces that fit, with the requirements and next steps up front.</p>
+          </div>
+          <section className="resource-assistant" aria-labelledby="assistant-title">
+            <div className="assistant-heading">
+              <span className="assistant-mark" aria-hidden="true">O</span>
+              <div><h2 id="assistant-title">Plan your next step</h2><p>Talk through your goal, then find resources when you're ready.</p></div>
             </div>
-            <p className="hero-footnote">For learning, research and project work. Availability and access are set by each institution.</p>
-          </div>
-          <div className="hero-visual" aria-label="Illustration of shared equipment and a booking schedule" role="img">
-            <div className="visual-orbit orbit-one" />
-            <div className="visual-orbit orbit-two" />
-            <div className="visual-card visual-card-main">
-              <div className="visual-card-top"><span className="visual-icon">O</span><span className="visual-status"><i /> READY TO REQUEST</span></div>
-              <span className="visual-label">RESOURCE CATALOG</span>
-              <strong>Tools for your<br />next big idea.</strong>
-              <div className="visual-card-bottom"><span>Clear requirements</span><span aria-hidden="true">↗</span></div>
+            {conversation.length > 0 && (
+              <div className="assistant-chat-log" role="log" aria-label="Resource search conversation" aria-relevant="additions">
+                <div className="assistant-chat-toolbar"><span>Search conversation</span><button type="button" onClick={startFreshSearch}>Start fresh</button></div>
+                {conversation.map((message, index) => (
+                  <div className={`assistant-chat-message assistant-chat-${message.role}`} key={`${index}-${message.role}`}>
+                    <strong>{message.role === "user" ? "You" : "OpenVault guide"}</strong><p>{message.text}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            <form onSubmit={submitAssistantMessage}>
+              <label className="sr-only" htmlFor="resource-goal">{conversation.length ? "Chat with the resource guide or refine your plan" : "Describe what you want to work on"}</label>
+              <textarea
+                id="resource-goal"
+                className="assistant-input"
+                maxLength={2000}
+                placeholder={conversation.length ? "Add a constraint, ask a question, or tell me what to refine…" : "Tell me what you're trying to make, learn, or solve…"}
+                value={goal}
+                onChange={(event) => setGoal(event.target.value)}
+                disabled={matching || aiAvailable === false}
+                aria-describedby="assistant-note"
+              />
+              <div className="assistant-compose-footer">
+                <span id="assistant-note">{conversation.length ? "Your recent messages stay in this chat." : "A few details help shape a practical plan."}</span>
+                <button className="button button-primary assistant-submit" type="submit" disabled={matching || aiAvailable !== true} aria-label="Send message">
+                  {matching ? "Thinking…" : "Send message"}<span aria-hidden="true">→</span>
+                </button>
+              </div>
+            </form>
+            {aiAvailable === false && <p className="assistant-message" role="status">AI chat is not configured for this deployment. An administrator must configure a server-side model provider before chat can be used.</p>}
+            {aiAvailable === true && <p className="assistant-disclosure">Your recent chat and relevant resource details are sent to the institution's configured AI provider to generate replies.</p>}
+            <div className="assistant-prompts" aria-label={conversation.length ? "Suggested refinements" : "Example searches"}>
+              <span>{conversation.length ? "Refine" : "Try"}</span>
+              {(conversation.length ? ["Prefer Electronics Lab", "Find a camera instead", "Try a 3D printer"] : ["Prototype a 3D-printed part", "Capture a field study", "Run an electronics experiment"]).map((prompt) => (
+                <button type="button" key={prompt} disabled={aiAvailable !== true} onClick={() => setGoal(prompt)}>{prompt}</button>
+              ))}
             </div>
-            <div className="visual-card visual-card-note"><span className="note-mark">✓</span><div><strong>Every step accounted for</strong><small>From request to return</small></div></div>
-            <span className="visual-spark spark-one" aria-hidden="true">✳</span>
-            <span className="visual-spark spark-two" aria-hidden="true">✳</span>
+            {matching && <div className="assistant-thinking" role="status"><span className="assistant-typing" aria-hidden="true"><i /><i /><i /></span><span>Thinking through your plan and resource options</span></div>}
+            {matchMessage && <p className="assistant-message" role="status">{matchMessage}</p>}
+            {user && user.role === "auditor" && <p className="assistant-message" role="status">This account is read-only. You can still <Link to="/resources">browse the catalog</Link>.</p>}
+            {conversation.length > 0 && matches.length === 0 && (
+              <div className="assistant-search-next">
+                <span>Ready to connect this plan to real options?</span>
+                <button className="button button-secondary" type="button" disabled={matching || aiAvailable !== true} onClick={() => void processAssistantMessage("", true)}>
+                  {matching ? "Checking options…" : "Find matching resources"}
+                </button>
+              </div>
+            )}
+            {matches.length > 0 && (
+              <div className="assistant-results" aria-live="polite">
+                <div className="assistant-results-heading"><h3>Good places to start</h3><Link to="/resources">Browse all resources</Link></div>
+                {matches.map((resource) => (
+                  <Link className="assistant-result" to={`/resources/${resource.resource_id}`} key={resource.resource_id}>
+                    <span><strong>{resource.name}</strong><small>{resource.location}</small><small>{resource.ready ? "Readiness check: ready for evaluation" : "Readiness check: review requirements"}</small><small>{resource.explanation}</small></span>
+                    <span className="assistant-result-arrow" aria-hidden="true">↗</span>
+                  </Link>
+                ))}
+                <p className="assistant-disclosure">{aiDisclosure} Eligibility, availability, and approval are checked by OpenVault separately.</p>
+                <div className="assistant-feedback">
+                  {feedbackSent ? <p role="status">Thanks, your feedback was recorded.</p> : <>
+                    <span>Were these matches useful?</span>
+                    <button type="button" disabled={feedbackSaving} onClick={() => void sendMatchFeedback(true)}>Yes</button>
+                    <button type="button" disabled={feedbackSaving} onClick={() => void sendMatchFeedback(false)}>Not quite</button>
+                  </>}
+                </div>
+                {feedbackError && <p className="assistant-feedback-error" role="alert">{feedbackError}</p>}
+              </div>
+            )}
+            {!user && matchMessage === "Sign in to get resource matches for your plan." && <Link className="button button-secondary assistant-login" to={`/login?next=${encodeURIComponent("/resources")}`}>Sign in to continue</Link>}
+          </section>
+          <div className="assistant-path" aria-label="How resource requests work">
+            <span><b>01</b> Find a fit</span><i aria-hidden="true" />
+            <span><b>02</b> Check requirements</span><i aria-hidden="true" />
+            <span><b>03</b> Request a time</span><i aria-hidden="true" />
+            <span><b>04</b> Owner reviews</span>
           </div>
-        </section>
-
-        <section className="problem-section section-wrap">
-          <div className="section-intro">
-            <p className="eyebrow">THE OPPORTUNITY</p>
-            <h2>Good resources shouldn’t sit idle.</h2>
-            <p>Sharing works when people know what’s available, what’s expected, and how decisions are made.</p>
-          </div>
-          <div className="problem-grid">
-            {[
-              ["01", "Idle equipment", "Useful tools and rooms can remain underused when discovery and booking are difficult."],
-              ["02", "Trust and safety", "Clear eligibility, training and condition records set expectations before a session begins."],
-              ["03", "Fair access", "A consistent queue and an accountable human decision help make access easier to understand."],
-            ].map(([number, title, description]) => (
-              <Card className="problem-card" key={number}>
-                <span className="section-number">{number}</span>
-                <h3>{title}</h3>
-                <p>{description}</p>
-              </Card>
-            ))}
-          </div>
-        </section>
-
-        <section className="how-section" id="how-it-works">
-          <div className="section-wrap">
-            <div className="section-intro section-intro-centered">
-              <p className="eyebrow">A CLEAR PATH FROM NEED TO USE</p>
-              <h2>Five simple steps.</h2>
-              <p>People stay informed at every step. Managers stay in control of approvals.</p>
-            </div>
-            <Stepper steps={[
-              { title: "Discover", description: "Search the catalog for equipment and spaces." },
-              { title: "Check", description: "Review access, training and supervision requirements." },
-              { title: "Request", description: "Choose an available time and submit your purpose." },
-              { title: "Decide", description: "A resource manager reviews and records the decision." },
-              { title: "Return", description: "Complete the condition checklist at handover." },
-            ]} />
-          </div>
-        </section>
-
-        <section className="features-section section-wrap" id="features">
-          <div className="section-intro">
-            <p className="eyebrow">BUILT FOR SHARED ACCESS</p>
-            <h2>Clear expectations. Better stewardship.</h2>
-          </div>
-          <div className="feature-columns">
-            <Card className="feature-card">
-              <Badge tone="info">FOR REQUESTERS</Badge>
-              <h3>Know what you need before you book.</h3>
-              <ul className="feature-list">
-                <li><span>✓</span><div><strong>Eligibility checks</strong><p>See training, supervision and policy requirements up front.</p></div></li>
-                <li><span>✓</span><div><strong>Transparent requests</strong><p>Follow decisions and any next steps in one place.</p></div></li>
-                <li><span>✓</span><div><strong>Condition records</strong><p>Record the state of equipment during check-in and return.</p></div></li>
-              </ul>
-            </Card>
-            <Card className="feature-card feature-card-owner">
-              <Badge tone="success">FOR RESOURCE OWNERS</Badge>
-              <h3>Share access without losing oversight.</h3>
-              <ul className="feature-list">
-                <li><span>✓</span><div><strong>Fair allocation</strong><p>Review competing eligible requests with understandable inputs.</p></div></li>
-                <li><span>✓</span><div><strong>Policy versions</strong><p>Keep existing session conditions intact as resource rules evolve.</p></div></li>
-                <li><span>✓</span><div><strong>Audit trail</strong><p>Keep decisions and changes attributable and reviewable.</p></div></li>
-              </ul>
-            </Card>
-          </div>
-        </section>
-
-        <section className="closing-cta">
-          <div><p className="eyebrow">START WITH WHAT’S AVAILABLE</p><h2>Find the right resource for your work.</h2></div>
-          <Link className="button button-light button-large" to={browsePath}>Browse resources <span aria-hidden="true">→</span></Link>
+          <div className="assistant-browse"><span>Prefer to explore?</span><Link to={browsePath}>Browse the full resource catalog <span aria-hidden="true">→</span></Link></div>
         </section>
       </main>
       <footer className="public-footer">
         <Link className="brand" to="/">openvault<span aria-hidden="true">.</span></Link>
-        <p>OpenVault is a prototype for institutional resource coordination. Availability, eligibility and approvals depend on the institution. It does not replace local safety procedures or institutional policy.</p>
+        <p>Availability, eligibility and approvals depend on the institution. OpenVault does not replace local safety procedures or institutional policy.</p>
         <Link to="/privacy">Privacy and limitations</Link>
         <span>© OpenVault</span>
       </footer>
@@ -178,6 +270,7 @@ export function LandingPage() {
 
 export function LoginPage() {
   const { accounts, accountsError, signIn, signInDemo } = useAuth();
+  const [oauthProviders, setOauthProviders] = useState({ google: false, linkedin: false });
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -189,6 +282,28 @@ export function LoginPage() {
   const navigate = useNavigate();
   const nextPath = new URLSearchParams(location.search).get("next");
   const safeNextPath = nextPath?.startsWith("/") && !nextPath.startsWith("//") ? nextPath : "/resources";
+  const oauthError = new URLSearchParams(location.search).get("oauth_error");
+  const oauthErrorText: Record<string, string> = {
+    provider_error: "The provider sign-in did not complete. Please try again.",
+    provider_unavailable: "That sign-in provider is not configured.",
+    unverified_email: "The provider did not return a verified email address.",
+    account_not_found: "Create an OpenVault account with this verified email before using provider sign-in.",
+    account_inactive: "This account is inactive. Contact your institution administrator.",
+  };
+
+  useEffect(() => {
+    let active = true;
+    void api.get<{ providers: typeof oauthProviders }>("/auth/providers").then(
+      ({ providers }) => active && setOauthProviders(providers),
+      () => active && setOauthProviders({ google: false, linkedin: false }),
+    );
+    return () => { active = false; };
+  }, []);
+
+  function startProviderSignIn(provider: "google" | "linkedin") {
+    const query = new URLSearchParams({ next: safeNextPath });
+    window.location.assign(apiUrl(`/auth/${provider}/start?${query.toString()}`));
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -231,6 +346,14 @@ export function LoginPage() {
           <h2 id="login-title">Sign in to OpenVault</h2>
           <p className="muted">Use your institutional account to continue.</p>
           {error !== null && <Alert tone="danger" title="We couldn’t sign you in">{errorText(error)}</Alert>}
+          {oauthError && <Alert tone="danger" title="Provider sign-in failed">{oauthErrorText[oauthError] ?? "Please try signing in again."}</Alert>}
+          {(oauthProviders.google || oauthProviders.linkedin) && (
+            <div className="oauth-options" aria-label="Alternative sign-in methods">
+              {oauthProviders.google && <button className="button button-secondary oauth-button" type="button" onClick={() => startProviderSignIn("google")}>Continue with Google</button>}
+              {oauthProviders.linkedin && <button className="button button-secondary oauth-button" type="button" onClick={() => startProviderSignIn("linkedin")}>Continue with LinkedIn</button>}
+              <p>Use a verified email already registered with OpenVault.</p>
+            </div>
+          )}
           <form onSubmit={(event) => void submit(event)} noValidate>
             <Input label="Email address" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
             <div className="password-field">
@@ -497,15 +620,38 @@ export function ProfilePage() {
   if (loadError) return <main className="page-content"><Alert tone="danger" title="Profile could not be loaded">{errorText(loadError)}</Alert></main>;
   if (!profile) return <main className="page-content"><EmptyState>Your profile is not available.</EmptyState></main>;
 
+  const completionItems = [
+    { label: "Name", complete: Boolean(profile.full_name.trim()) },
+    { label: "Organization", complete: Boolean(profile.organization_name?.trim()) },
+    { label: "Discovery goal", complete: Boolean(profile.intended_use?.trim()) },
+  ];
+  const completedProfileItems = completionItems.filter((item) => item.complete).length;
+  const profileCompletion = Math.round((completedProfileItems / completionItems.length) * 100);
+
   return (
     <div className="page-content">
-      <PageHeading title="Your profile" description="Manage your account details, security and resource owner application." />
+      <PageHeading title="Your profile" description="Set the context behind your access and resource recommendations." />
+      <section className="profile-overview" aria-label="Profile overview">
+        <div className="profile-overview-identity">
+          <span className="profile-avatar profile-avatar-large" aria-hidden="true">{profile.full_name.slice(0, 1).toUpperCase()}</span>
+          <div>
+            <p className="eyebrow">OPENVAULT ACCOUNT</p>
+            <h2>{profile.full_name}</h2>
+            <p>{roleLabels[profile.role]}{profile.organization_name && <> <span aria-hidden="true">·</span> {profile.organization_name}</>} <span aria-hidden="true">·</span> {profile.status}</p>
+          </div>
+        </div>
+        <div className="profile-completion">
+          <div className="profile-completion-heading"><span>Profile basics</span><strong>{completedProfileItems} / {completionItems.length}</strong></div>
+          <progress value={profileCompletion} max="100" aria-label={`Profile ${profileCompletion}% complete`} />
+          <ul>{completionItems.map((item) => <li className={item.complete ? "complete" : "incomplete"} key={item.label}><span aria-hidden="true">{item.complete ? "✓" : "○"}</span>{item.label}</li>)}</ul>
+          <p>Adding a discovery goal improves the resource recommendations shown on your dashboard.</p>
+        </div>
+      </section>
       {serverError !== null && <Alert tone="danger" title="We couldn’t save your changes">{errorText(serverError)}</Alert>}
       <Tabs tabs={tabs} value={activeTab} onChange={setActiveTab} />
       {activeTab === "profile" && (
         <section className="profile-tab" role="tabpanel" id="panel-profile" aria-labelledby="tab-profile">
           <Card className="profile-card">
-            <div className="profile-intro"><span className="profile-avatar" aria-hidden="true">{profile.full_name.slice(0, 1).toUpperCase()}</span><div><h2>{profile.full_name}</h2><p>{roleLabels[profile.role]} <span aria-hidden="true">·</span> {profile.status}</p></div></div>
             <form className="profile-form" onSubmit={(event) => void saveProfile(event)}>
               <Input label="Full name" autoComplete="name" required maxLength={120} value={profile.full_name} onChange={(event) => setProfile({ ...profile, full_name: event.target.value })} />
               <Input label="Email address" type="email" value={profile.email ?? ""} readOnly helper="Email address cannot be changed in this prototype." />

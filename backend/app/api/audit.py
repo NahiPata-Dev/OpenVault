@@ -72,6 +72,7 @@ def resource_timeline(
                 "event": event.action,
                 "actor": _actor_name(session, event.actor_id),
                 "summary": event.after_summary or event.before_summary or {},
+                "is_demo": event.is_demo,
             }
             for event in events
         ]

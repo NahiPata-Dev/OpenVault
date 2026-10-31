@@ -750,5 +750,39 @@ class ResourceMatchResult(APIModel):
     disclosure: str
 
 
+class AIChatMessage(APIModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=4000)
+
+
+class AIChatRequest(APIModel):
+    messages: list[AIChatMessage] = Field(min_length=1, max_length=16)
+
+    @model_validator(mode="after")
+    def last_message_must_be_user(self):
+        if self.messages[-1].role != "user":
+            raise ValueError("The latest chat message must be from the user")
+        return self
+
+
+class AIChatResource(APIModel):
+    resource_id: UUID
+    name: str
+    location: str
+    ready: bool
+    explanation: str
+
+
+class AIChatResponse(APIModel):
+    reply: str = Field(min_length=1, max_length=5000)
+    resources: list[AIChatResource] = Field(max_length=5)
+    source: Literal["ai"]
+    disclosure: str
+
+
+class DiscoveryFeedbackCreate(APIModel):
+    is_helpful: bool
+
+
 class DemoResetRequest(APIModel):
     confirmation: str = Field(min_length=1, max_length=40)

@@ -1,9 +1,14 @@
 import hashlib
 import hmac
 from datetime import datetime, timedelta, timezone
+from typing import Literal
+from urllib.parse import urlencode
 from uuid import uuid4
 
+from authlib.integrations.base_client.errors import OAuthError
 from fastapi import APIRouter, Depends, Request
+from fastapi import Query
+from fastapi.responses import RedirectResponse
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -25,12 +30,102 @@ from app.services.accounts import organization_scope, unique_display_name
 from app.services.auth import hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+OAuthProvider = Literal["google", "linkedin"]
 LOGIN_WINDOW = timedelta(minutes=15)
 LOGIN_FAILURE_LIMIT = 5
 NEW_PASSWORD_ROUNDS = 600_000
 DUMMY_PASSWORD_HASH = hash_password(
     "invalid-login-timing-placeholder", NEW_PASSWORD_ROUNDS
 )
+
+
+def _safe_next_path(value: str | None) -> str:
+    if not value or not value.startswith("/") or value.startswith("//") or "\\" in value:
+        return "/resources"
+    return value
+
+
+def _oauth_client(request: Request, provider: OAuthProvider):
+    if not request.app.state.oauth_redirect_base_url:
+        return None
+    return request.app.state.oauth.create_client(provider)
+
+
+def _oauth_failure_redirect(
+    request: Request, provider: OAuthProvider, error_code: str
+) -> RedirectResponse:
+    next_path = _safe_next_path(request.session.pop(f"oauth_next_{provider}", None))
+    query = urlencode({"oauth_error": error_code, "next": next_path})
+    return RedirectResponse(
+        f"{request.app.state.frontend_base_url}/login?{query}", status_code=303
+    )
+
+
+@router.get("/providers")
+def oauth_providers(request: Request) -> dict[str, dict[str, bool]]:
+    return {
+        "providers": {
+            name: _oauth_client(request, name) is not None
+            for name in ("google", "linkedin")
+        }
+    }
+
+
+@router.get("/{provider}/start")
+async def start_oauth(
+    provider: OAuthProvider,
+    request: Request,
+    next_path: str = Query(default="/resources", alias="next", max_length=2048),
+):
+    client = _oauth_client(request, provider)
+    if client is None:
+        raise_api_error("oauth_unavailable", "This sign-in provider is not configured.", 503)
+    request.session[f"oauth_next_{provider}"] = _safe_next_path(next_path)
+    redirect_uri = (
+        f"{request.app.state.oauth_redirect_base_url}"
+        f"/api/auth/{provider}/callback"
+    )
+    return await client.authorize_redirect(request, redirect_uri)
+
+
+@router.get("/{provider}/callback")
+async def finish_oauth(provider: OAuthProvider, request: Request, session: Session = Depends(get_session)):
+    client = _oauth_client(request, provider)
+    if client is None:
+        return _oauth_failure_redirect(request, provider, "provider_unavailable")
+    try:
+        token = await client.authorize_access_token(request)
+    except OAuthError:
+        return _oauth_failure_redirect(request, provider, "provider_error")
+
+    claims = token.get("userinfo")
+    if not isinstance(claims, dict) or claims.get("email_verified") is not True:
+        return _oauth_failure_redirect(request, provider, "unverified_email")
+    email = claims.get("email")
+    if not isinstance(email, str) or not email.strip():
+        return _oauth_failure_redirect(request, provider, "unverified_email")
+
+    profile = session.scalar(
+        select(AccountProfile).where(
+            func.lower(AccountProfile.email) == email.strip().casefold()
+        )
+    )
+    if profile is None:
+        return _oauth_failure_redirect(request, provider, "account_not_found")
+    user = session.get(User, profile.user_id)
+    if user is None or not profile.is_active:
+        return _oauth_failure_redirect(request, provider, "account_inactive")
+
+    if not profile.email_verified:
+        profile.email_verified = True
+        session.commit()
+    next_path = _safe_next_path(request.session.pop(f"oauth_next_{provider}", None))
+    request.session.clear()
+    request.session["user_id"] = user.id
+    request.session["auth_version"] = profile.auth_version
+    return RedirectResponse(
+        f"{request.app.state.frontend_base_url}{next_path}", status_code=303
+    )
 
 
 @router.get("/demo-accounts", response_model=DemoAccountsRead)

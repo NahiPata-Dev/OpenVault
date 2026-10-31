@@ -233,6 +233,7 @@ export function RequestsPage() {
   const [actionError, setActionError] = useState<unknown>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("all");
+  const [sortOrder, setSortOrder] = useState("newest");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -262,7 +263,11 @@ export function RequestsPage() {
     }
   }
 
-  const visibleItems = statusFilter === "all" ? items : items.filter((item) => item.request.status === statusFilter);
+  const visibleItems = [...(statusFilter === "all" ? items : items.filter((item) => item.request.status === statusFilter))]
+    .sort((left, right) => {
+      const direction = sortOrder === "oldest" ? 1 : -1;
+      return direction * (new Date(left.request.created_at).getTime() - new Date(right.request.created_at).getTime());
+    });
   return (
     <>
       <PageHeading title="My requests" description="Follow your request decisions and the next step for each one." />
@@ -272,6 +277,11 @@ export function RequestsPage() {
         <select id="request-status-filter" className="select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
           <option value="all">All requests</option>
           {[...new Set(items.map((item) => item.request.status))].sort().map((status) => <option value={status} key={status}>{statusLabel(status)}</option>)}
+        </select>
+        <label className="field-label" htmlFor="request-sort">Sort by submission date</label>
+        <select id="request-sort" className="select" value={sortOrder} onChange={(event) => setSortOrder(event.target.value)}>
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
         </select>
       </div>
       {actionError !== null && <ErrorState error={actionError} />}
@@ -321,6 +331,7 @@ export function MyBookingsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [statusFilter, setStatusFilter] = useState("all");
+  const [sortOrder, setSortOrder] = useState("soonest");
 
   useEffect(() => {
     let active = true;
@@ -332,7 +343,11 @@ export function MyBookingsPage() {
   }, []);
 
   const statuses = useMemo(() => [...new Set(items.map((item) => item.booking?.status ?? ""))].filter(Boolean).sort(), [items]);
-  const visible = statusFilter === "all" ? items : items.filter((item) => item.booking?.status === statusFilter);
+  const visible = [...(statusFilter === "all" ? items : items.filter((item) => item.booking?.status === statusFilter))]
+    .sort((left, right) => {
+      const direction = sortOrder === "latest" ? -1 : 1;
+      return direction * (new Date(left.booking!.start_at).getTime() - new Date(right.booking!.start_at).getTime());
+    });
   return (
     <>
       <PageHeading title="My bookings" description="Review confirmed sessions, access conditions, and handover actions." />
@@ -342,6 +357,11 @@ export function MyBookingsPage() {
         <select id="booking-status-filter" className="select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
           <option value="all">All bookings</option>
           {statuses.map((status) => <option value={status} key={status}>{statusLabel(status)}</option>)}
+        </select>
+        <label className="field-label" htmlFor="booking-sort">Sort by session date</label>
+        <select id="booking-sort" className="select" value={sortOrder} onChange={(event) => setSortOrder(event.target.value)}>
+          <option value="soonest">Soonest first</option>
+          <option value="latest">Latest first</option>
         </select>
       </div>
       {loading && <Loading label="Loading your bookings…" />}

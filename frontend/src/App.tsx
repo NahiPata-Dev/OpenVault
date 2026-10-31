@@ -13,7 +13,6 @@ import { api } from "./api/client";
 import type { Role, User } from "./api/types";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { ErrorState } from "./components/Feedback";
-import { PageHeading } from "./components/PageHeading";
 import { Alert, Badge, Button, Card, EmptyState } from "./components/UI";
 import { formatIST } from "./lib/format";
 import {
@@ -258,10 +257,31 @@ interface DashboardRequestRecord {
   } | null;
 }
 
+interface DashboardProfile {
+  intended_use: string | null;
+}
+
+interface DashboardRecommendation {
+  resource_id: string;
+  explanation: string;
+  name: string;
+  location: string;
+  ready: boolean;
+}
+
+const dashboardMetricDetails: Record<string, { label: string; detail: string }> = {
+  upcoming_bookings: { label: "Upcoming bookings", detail: "Sessions on your calendar" },
+  pending_requests: { label: "Pending requests", detail: "Waiting for a resource owner" },
+  open_incidents: { label: "Open incidents", detail: "Items needing follow-up" },
+  expiring_training: { label: "Training expiring", detail: "Within the next 30 days" },
+};
+
 function DashboardPage({ user }: { user: User }) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [requests, setRequests] = useState<DashboardRequestRecord[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [profile, setProfile] = useState<DashboardProfile | null>(null);
+  const [recommendations, setRecommendations] = useState<DashboardRecommendation[]>([]);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -276,11 +296,38 @@ function DashboardPage({ user }: { user: User }) {
         api.get<DashboardData>(path),
         api.get<{ items: DashboardRequestRecord[] }>("/requests/mine"),
         api.get<{ items: NotificationItem[] }>("/notifications"),
-      ]).then(([dashboard, history, notificationList]) => {
+        api.get<DashboardProfile>("/me"),
+      ]).then(async ([dashboard, history, notificationList, account]) => {
         if (!active) return;
         setData(dashboard);
         setRequests(history.items);
         setNotifications(notificationList.items);
+        setProfile(account);
+        if (account.intended_use?.trim()) {
+          try {
+            const [matches, catalog] = await Promise.all([
+              api.post<{ candidates: Array<{ resource_id: string; explanation: string }> }>(
+                "/ai/match",
+                { goal: account.intended_use, constraints: {} },
+              ),
+              api.get<{ items: Array<{ id: string; name: string; location: string; readiness: { ready: boolean } }> }>("/resources?sort=next_availability"),
+            ]);
+            if (!active) return;
+            const resources = new Map(catalog.items.map((resource) => [resource.id, resource]));
+            setRecommendations(matches.candidates.flatMap((candidate) => {
+              const resource = resources.get(candidate.resource_id);
+              return resource ? [{
+                resource_id: resource.id,
+                name: resource.name,
+                location: resource.location,
+                ready: resource.readiness.ready,
+                explanation: candidate.explanation,
+              }] : [];
+            }).slice(0, 3));
+          } catch {
+            if (active) setRecommendations([]);
+          }
+        }
       })
       : api.get<DashboardData>(path).then((dashboard) => active && setData(dashboard));
     void loads.catch((loadError: unknown) => active && setError(loadError))
@@ -298,8 +345,19 @@ function DashboardPage({ user }: { user: User }) {
   const expiringTraining = data?.next_items.filter((item) => item.type === "expiring_training") ?? [];
 
   return (
-    <div className="page-content">
-      <PageHeading eyebrow="YOUR WORKSPACE" title={`Good to see you, ${user.display_name.split(" ")[0]}`} description={user.role === "lab_manager" ? "Review your resources, incoming requests and follow-up tasks." : "Keep track of upcoming bookings, requests, training and notifications."} />
+    <div className="page-content dashboard-page">
+      <header className="dashboard-welcome">
+        <div>
+          <p className="eyebrow">{new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" }).format(new Date())} <span aria-hidden="true">·</span> {roleLabels[user.role]}</p>
+          <h1>Good to see you, {user.display_name.split(" ")[0]}.</h1>
+          <p>{user.role === "lab_manager" ? "Your resources, incoming decisions and follow-up work." : "Your access, upcoming sessions and next steps."}</p>
+        </div>
+        <Link className="dashboard-profile-link" to="/profile">
+          <span className="dashboard-profile-avatar" aria-hidden="true">{user.display_name.slice(0, 1).toUpperCase()}</span>
+          <span><strong>Profile & preferences</strong><small>{profile?.intended_use ? "Discovery profile is active" : "Add a goal to personalize matches"}</small></span>
+          <span aria-hidden="true">↗</span>
+        </Link>
+      </header>
       {error !== null && <ErrorState error={error} />}
       {user.role === "institution_admin" || user.role === "auditor" ? <Card className="dashboard-up-next">
         <h2>{user.role === "auditor" ? "Read-only records" : "Administration"}</h2>
@@ -308,12 +366,36 @@ function DashboardPage({ user }: { user: User }) {
       </Card> : loading ? <div className="skeleton-grid" aria-label="Loading dashboard"><span className="skeleton skeleton-metric" /><span className="skeleton skeleton-metric" /><span className="skeleton skeleton-metric" /><span className="skeleton skeleton-metric" /></div> : data && (
         <>
           <div className="dashboard-metrics">
-            {Object.entries(data.summary).map(([key, value]) => (
-              <Card className="dashboard-metric" key={key}><p>{key.replaceAll("_", " ")}</p><strong>{value}</strong></Card>
-            ))}
+            {Object.entries(data.summary).map(([key, value], index) => {
+              const metric = dashboardMetricDetails[key] ?? { label: key.replaceAll("_", " "), detail: "Current total" };
+              return (
+                <Card className={`dashboard-metric dashboard-metric-${key}`} key={key}>
+                  <span className="dashboard-metric-index">0{index + 1}</span>
+                  <strong>{value}</strong>
+                  <div><p>{metric.label}</p><small>{metric.detail}</small></div>
+                </Card>
+              );
+            })}
           </div>
           {user.role === "requester" ? (
             <div className="requester-dashboard-grid">
+              <Card className="dashboard-recommendations">
+                <div className="card-title-row"><div><p className="eyebrow">PERSONALIZED DISCOVERY</p><h2>Picked for your goals</h2></div><Link className="text-link" to="/resources">Explore all →</Link></div>
+                {profile?.intended_use ? recommendations.length ? (
+                  <>
+                    <p className="dashboard-algorithm-note">Ranked against your stated goal, resource capabilities and readiness. Final eligibility is checked when you choose a time.</p>
+                    <ul className="recommendation-list-dashboard">{recommendations.map((resource, index) => (
+                      <li key={resource.resource_id}>
+                        <span className="recommendation-rank">0{index + 1}</span>
+                        <div><Link to={`/resources/${resource.resource_id}`}><strong>{resource.name}</strong></Link><small>{resource.location}</small><small>{resource.explanation}</small></div>
+                        <Badge tone={resource.ready ? "success" : "warning"}>{resource.ready ? "Ready to check" : "Review access"}</Badge>
+                      </li>
+                    ))}</ul>
+                  </>
+                ) : <EmptyState title="No close matches yet">Try a broader goal or browse the full catalog.</EmptyState> : (
+                  <div className="dashboard-profile-prompt"><p>Add what you want to use OpenVault for and your dashboard can rank relevant resources for you.</p><Link className="button button-secondary" to="/profile">Set discovery goal</Link></div>
+                )}
+              </Card>
               <Card className="dashboard-up-next">
                 <div className="card-title-row"><h2>Upcoming bookings</h2><Link className="text-link" to="/bookings">View bookings →</Link></div>
                 {upcomingBookings.length ? <ul className="up-next-list">{upcomingBookings.map(({ request, booking }) => booking && <li key={booking.id}><span className="up-next-mark" aria-hidden="true">•</span><div><strong>{request.purpose.replaceAll("_", " ")}</strong><p>{formatIST(booking.start_at)} · {booking.status.replaceAll("_", " ").toLowerCase()}</p></div>{request.is_demo && <Badge>Sample data</Badge>}</li>)}</ul> : <EmptyState title="No upcoming bookings">Confirmed sessions will appear here.</EmptyState>}
