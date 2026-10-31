@@ -578,3 +578,60 @@ p { line-height: 1.65; }
   .requester-dashboard-grid .card-title-row { align-items: flex-start; flex-direction: column; }
   .queue-filters, .audit-filters { grid-template-columns: 1fr; }
 }
+
+.booking-assistant { position: fixed; z-index: 1000; right: 24px; bottom: 24px; }
+.assistant-launcher { display: inline-flex; min-height: 48px; align-items: center; gap: 9px; border: 0; border-radius: 999px; padding: 0 20px; color: #fff; background: var(--teal); box-shadow: 0 8px 26px #18343c35; font-weight: 720; cursor: pointer; }
+.assistant-launcher:hover { background: var(--teal-dark); }
+.assistant-launcher > span:first-child { font-size: 1.15rem; }
+.assistant-panel { position: absolute; right: 0; bottom: 62px; display: flex; width: min(420px, calc(100vw - 32px)); height: min(680px, calc(100dvh - 112px)); min-height: 340px; flex-direction: column; overflow: hidden; border: 1px solid #cfddd7; border-radius: 14px; background: var(--surface); box-shadow: 0 16px 55px #18343c30; }
+.assistant-header { display: flex; flex: 0 0 auto; align-items: flex-start; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); padding: 17px 18px 13px; background: #f5f9f6; }
+.assistant-header h2 { margin: 0 0 5px; font-size: 1.1rem; letter-spacing: -.02em; }
+.assistant-header p { max-width: 330px; margin: 0; color: var(--ink-muted); font-size: .79rem; line-height: 1.45; }
+.assistant-close { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border: 1px solid var(--line); border-radius: 50%; color: var(--ink); background: #fff; font-size: 1.35rem; line-height: 1; cursor: pointer; }
+.assistant-messages { display: flex; flex: 1 1 auto; flex-direction: column; gap: 12px; overflow-y: auto; padding: 16px; }
+.assistant-intro { max-width: 92%; margin: 0; border: 1px solid var(--line); border-radius: 4px 12px 12px 12px; padding: 12px; color: var(--ink); background: #f6f9f7; font-size: .88rem; line-height: 1.5; }
+.assistant-message { max-width: 96%; min-width: 0; border: 1px solid var(--line); border-radius: 4px 12px 12px 12px; padding: 11px; background: #f6f9f7; }
+.assistant-message > p { margin: 0; color: var(--ink); font-size: .88rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.assistant-message-user { align-self: flex-end; border-color: #b7d8ca; border-radius: 12px 4px 12px 12px; background: #edf7f1; }
+.assistant-source { display: inline-block; margin-top: 8px; color: var(--ink-muted); font-size: .72rem; }
+.assistant-suggestions { display: grid; gap: 8px; margin-top: 10px; }
+.assistant-resource-card { display: grid; gap: 4px; border: 1px solid #d5e0db; border-radius: 9px; padding: 10px; background: #fff; font-size: .8rem; }
+.assistant-resource-card > strong { color: var(--ink); font-size: .88rem; }
+.assistant-resource-card > span { color: var(--ink-muted); overflow-wrap: anywhere; }
+.assistant-resource-card .assistant-eligibility-pass { color: #194f35; font-weight: 650; }
+.assistant-resource-card .assistant-eligibility-fail { color: #702c27; font-weight: 650; }
+.assistant-card-link { width: fit-content; color: var(--teal-dark); font-size: .82rem; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+.assistant-draft-card { margin-top: 10px; border: 1px solid #b7d8ca; border-radius: 9px; padding: 11px; background: #f7fbf8; }
+.assistant-draft-card h3 { margin: 0 0 9px; font-size: .94rem; }
+.assistant-draft-card dl { display: grid; gap: 7px; margin: 0; font-size: .79rem; }
+.assistant-draft-card dl > div { display: grid; grid-template-columns: 75px minmax(0, 1fr); gap: 8px; }
+.assistant-draft-card dt { color: var(--ink-muted); font-weight: 650; }
+.assistant-draft-card dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
+.assistant-draft-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; }
+.assistant-draft-actions .button { min-height: 37px; padding: 8px 11px; font-size: .78rem; }
+.assistant-quick-replies { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.assistant-quick-replies button { border: 1px solid #b7cdc3; border-radius: 999px; padding: 6px 9px; color: #24574e; background: #fff; font-size: .74rem; cursor: pointer; }
+.assistant-quick-replies button:disabled { opacity: .55; cursor: not-allowed; }
+.assistant-loading { align-self: flex-start; margin: 0; color: var(--ink-muted); font-size: .82rem; }
+.assistant-error { display: grid; gap: 8px; }
+.assistant-error .button { justify-self: start; }
+.assistant-composer { flex: 0 0 auto; border-top: 1px solid var(--line); padding: 11px 14px; background: #fff; }
+.assistant-composer textarea { display: block; width: 100%; min-height: 58px; resize: vertical; border: 1px solid #bdcbc5; border-radius: 8px; padding: 9px 10px; color: var(--ink); background: #fff; font-size: .86rem; }
+.assistant-composer textarea:disabled { background: #f2f4f3; }
+.assistant-composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 7px; }
+.assistant-composer-footer > span { color: var(--ink-muted); font-size: .75rem; }
+.assistant-composer-footer .button { min-height: 36px; padding: 7px 15px; font-size: .82rem; }
+.assistant-composer-footer .button:disabled, .assistant-draft-actions .button:disabled { opacity: .55; cursor: not-allowed; }
+.assistant-result { margin-top: 10px; border-radius: 8px; padding: 10px; font-size: .79rem; }
+.assistant-result-positive { border: 1px solid #b6d6c3; color: #194f35; background: #f1f8f3; }
+.assistant-result-negative { border: 1px solid #e8c1bc; color: #702c27; background: #fff5f3; }
+.assistant-result h4 { margin: 0 0 6px; font-size: .9rem; }
+.assistant-result p { margin: 0 0 8px; line-height: 1.45; }
+.assistant-result ul { display: grid; gap: 8px; margin: 8px 0; padding-left: 18px; }
+.assistant-result li { display: grid; gap: 3px; }
+.assistant-result a { display: inline-block; margin-top: 4px; font-weight: 700; }
+@media (max-width: 600px) {
+  .booking-assistant { right: 12px; bottom: 12px; }
+  .assistant-launcher { min-height: 46px; padding: 0 15px; }
+  .assistant-panel { position: fixed; right: 12px; bottom: 68px; width: calc(100vw - 24px); height: min(680px, calc(100dvh - 88px)); }
+}

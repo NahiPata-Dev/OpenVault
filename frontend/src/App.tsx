@@ -13,6 +13,7 @@ import { api } from "./api/client";
 import type { Role, User } from "./api/types";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { ErrorState } from "./components/Feedback";
+import { BookingAssistant } from "./components/BookingAssistant";
 import { PageHeading } from "./components/PageHeading";
 import { Alert, Badge, Button, Card, EmptyState } from "./components/UI";
 import { formatIST } from "./lib/format";
@@ -419,6 +420,7 @@ function ProtectedLayout() {
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
+      <BookingAssistant role={user.role} />
     </div>
   );
 }

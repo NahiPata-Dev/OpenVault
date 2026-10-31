@@ -647,6 +647,7 @@ class ResourceRequestCreate(APIModel):
     purpose: str = Field(min_length=1, max_length=2000)
     start_at: datetime
     end_at: datetime
+    assistant_draft: bool = False
 
     @model_validator(mode="after")
     def valid_interval(self):

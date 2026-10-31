@@ -68,6 +68,24 @@ no payments are processed.
 Startup upgrades legacy resource and user columns in SQLite and PostgreSQL
 databases before serving API requests.
 
+## Booking assistant
+
+Authenticated requesters and lab managers can use `POST /api/assistant/chat`
+for deterministic resource search, requirements/readiness explanations, their
+own request outcomes, alternatives, and request drafts. The chat endpoint never
+submits a request. A client submits a confirmed draft through `POST /api/requests`
+and may set `assistant_draft: true` to add an audit event; this flag does not
+change eligibility or allocation.
+
+The rules engine is always available. An optional OpenAI-compatible provider is
+enabled only when `AI_API_KEY` is set and `AI_PROVIDER` is `openai` or
+`openai-compatible`. `AI_BASE_URL` and `AI_MODEL` may override the API endpoint
+and default model (`gpt-4o-mini`). Provider calls have an 8-second timeout and
+fall back to rules on errors. Only the user's message and scoped resource
+identifiers/catalog metadata are sent; resource descriptions, user records, and
+bookings are not sent to the model. Chat is limited to 20 messages per user per
+10 minutes.
+
 ## Demo login
 
 The visible shared demo password is **`northstar-demo`**. The stored account

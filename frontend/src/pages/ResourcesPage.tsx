@@ -389,8 +389,20 @@ const requestSteps = [
   { title: "Submit", description: "Send the request for a human decision." },
 ];
 
+function isoToISTInput(value: string | null): string {
+  if (!value) return "";
+  const timestamp = new Date(value).getTime();
+  if (Number.isNaN(timestamp)) return "";
+  return new Date(timestamp + 330 * 60_000).toISOString().slice(0, 16);
+}
+
 export function ResourceDetailPage({ role }: { role: Role }) {
   const { resourceId = "" } = useParams();
+  const [searchParams] = useSearchParams();
+  const draftStart = searchParams.get("start");
+  const draftEnd = searchParams.get("end");
+  const draftPurpose = searchParams.get("purpose");
+  const isAssistantDraft = searchParams.get("assistantDraft") === "1";
   const [data, setData] = useState<ResourceResponse | null>(null);
   const [nextAvailability, setNextAvailability] = useState<string | null>(null);
   const [availabilityError, setAvailabilityError] = useState<unknown>(null);
@@ -419,16 +431,28 @@ export function ResourceDetailPage({ role }: { role: Role }) {
     try {
       const detail = await api.get<ResourceResponse>(`/resources/${resourceId}`);
       setData(detail);
-      setPurpose(detail.active_policy?.allowed_uses[0] ?? "");
+      const allowedUses = detail.active_policy?.allowed_uses ?? [];
+      setPurpose(
+        draftPurpose && allowedUses.includes(draftPurpose)
+          ? draftPurpose
+          : allowedUses[0] ?? "",
+      );
+      setStartAt(isoToISTInput(draftStart));
+      setEndAt(isoToISTInput(draftEnd));
       setEligibility(detail.eligibility_checklist);
     } catch (loadError) {
       setError(loadError);
     } finally {
       setLoading(false);
     }
-  }, [resourceId]);
+  }, [draftEnd, draftPurpose, draftStart, resourceId]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (isAssistantDraft && !loading) {
+      document.getElementById("request-title")?.scrollIntoView();
+    }
+  }, [isAssistantDraft, loading]);
 
   useEffect(() => {
     let active = true;

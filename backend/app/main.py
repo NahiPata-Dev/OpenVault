@@ -16,6 +16,7 @@ from app.api.auth import router as auth_router
 from app.api.audit import router as audit_router
 from app.api.admin import router as admin_router
 from app.api.account import router as account_router
+from app.api.assistant import router as assistant_router
 from app.api.ai import router as ai_router
 from app.api.analytics import router as analytics_router
 from app.api.bookings import router as bookings_router
@@ -96,6 +97,9 @@ def create_app(
     app.state.public_summary_buckets = {}
     app.state.public_summary_lock = Lock()
     app.state.public_summary_cleanup_at = 0.0
+    app.state.assistant_rate_limit_buckets = {}
+    app.state.assistant_rate_limit_lock = Lock()
+    app.state.assistant_rate_limit_cleanup_at = 0.0
 
     app.add_middleware(
         SessionMiddleware,
@@ -277,6 +281,7 @@ def create_app(
         return response
 
     app.include_router(account_router)
+    app.include_router(assistant_router)
     app.include_router(auth_router)
     app.include_router(admin_router)
     app.include_router(ai_router)
