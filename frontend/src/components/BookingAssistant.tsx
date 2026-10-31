@@ -273,9 +273,28 @@ export function BookingAssistant({ role }: { role: Role }) {
                 Chat is available to requesters and lab managers. This account can browse the workspace but cannot use the booking assistant.
               </p>
             ) : messages.length === 0 ? (
-              <p className="assistant-intro">
-                Ask about resources, requirements, your request history, or prepare a request draft.
-              </p>
+              <div className="assistant-welcome">
+                <p className="assistant-intro">
+                  I can help you find a resource, check its requirements, and prepare a request. A manager makes every approval decision.
+                </p>
+                <p className="assistant-starter-label">Try asking</p>
+                <div className="assistant-starters">
+                  {[
+                    "I need a laser cutter in Hyderabad tomorrow afternoon for a robotics prototype",
+                    "What training do I need for a laser cutter?",
+                    "Find a GPU workstation in Bengaluru",
+                  ].map((prompt) => (
+                    <button
+                      key={prompt}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void sendMessage(prompt)}
+                    >
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ) : (
               messages.map((message) => (
                 <article
@@ -298,6 +317,7 @@ export function BookingAssistant({ role }: { role: Role }) {
                               key={resource.resource_id}
                             >
                               <strong>{resource.name}</strong>
+                              <span className="assistant-resource-reason">{resource.reason}</span>
                               <span>{resource.organization_name}</span>
                               <span>{resource.city}</span>
                               <span
@@ -311,6 +331,24 @@ export function BookingAssistant({ role }: { role: Role }) {
                               >
                                 {eligibilitySummary(resource.eligibility)}
                               </span>
+                              {resource.eligibility.length > 0 && (
+                                <ul className="assistant-requirements">
+                                  {resource.eligibility.map((item, index) => (
+                                    <li
+                                      className={item.status === "fail" ? "assistant-eligibility-fail" : "assistant-eligibility-pass"}
+                                      key={`${item.requirement}-${index}`}
+                                    >
+                                      <strong>
+                                        {item.status === "pass" ? "Pass" : "Blocker"}:
+                                      </strong>{" "}
+                                      {item.requirement}
+                                      {item.status === "fail" && (
+                                        <span><strong>Next step:</strong> {item.next_action}</span>
+                                      )}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
                               <Link
                                 className="assistant-card-link"
                                 to={`/resources/${resource.resource_id}`}

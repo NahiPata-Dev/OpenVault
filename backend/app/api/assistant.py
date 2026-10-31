@@ -73,7 +73,10 @@ def assistant_chat(
     model_reply = None
 
     intent_from_rules = determine_intent(payload.message)
-    if not intent_from_rules.startswith("unsupported_") and intent_from_rules != "explain_request":
+    if (
+        not intent_from_rules.startswith("unsupported_")
+        and intent_from_rules not in {"explain_request", "general_help"}
+    ):
         provider = configured_assistant_provider()
         if provider is not None:
             try:

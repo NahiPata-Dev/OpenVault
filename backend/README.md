@@ -38,6 +38,30 @@ database has no users. The seed script follows the same rule and leaves a
 database containing any user unchanged; use the restricted reset endpoint to
 reset only demo rows.
 
+### Deploying with Supabase and Vercel
+
+The frontend's `frontend/vercel.json` forwards `/api` requests to the configured
+Render backend. Configure `DATABASE_URL`, `SECRET_KEY`, and `DEMO_PASSWORD` on
+the Render backend service, not on Vercel. Vercel hosts the frontend and does not
+select the backend database. Keep database credentials in the hosting
+environment-variable settings; never put them in frontend variables or source
+control. Rotate any database password that has been shared outside the secret
+manager.
+
+The automatic seed runs only for an empty database. Changing `DATABASE_URL` to
+an existing Supabase database will not replace its current demo records. To
+refresh sample data, back up the database, deploy the current backend, enable
+`DEMO_MODE=true` only for this restricted demo deployment, then sign in as the
+Institution Admin and use **Administration → Reset seeded demo data**. This
+replaces rows marked as demo data and repopulates them from the deployed seed;
+it does not reset non-demo records. The action is irreversible for the demo
+requests, bookings, training records, and audit history it replaces.
+
+After the reset, `GET /api/public/summary` should return the sample cities and
+nonzero resource and organization counts. If it does not, verify that Render
+uses the intended Supabase `DATABASE_URL` and that the current backend commit
+has finished deploying.
+
 ## Resource catalog and dashboards
 
 Authenticated users can browse detailed resource profiles at `GET /api/resources`
@@ -84,7 +108,9 @@ and default model (`gpt-4o-mini`). Provider calls have an 8-second timeout and
 fall back to rules on errors. Only the user's message and scoped resource
 identifiers/catalog metadata are sent; resource descriptions, user records, and
 bookings are not sent to the model. Chat is limited to 20 messages per user per
-10 minutes.
+10 minutes. Configure provider variables on Render, never in the browser or
+Vercel's public frontend bundle. If no provider is configured, the assistant
+uses deterministic matching and guidance.
 
 ## Demo login
 

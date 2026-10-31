@@ -73,6 +73,26 @@ def determine_intent(message: str) -> str:
         return "explain_requirements"
     if re.search(r"\b(draft|prepare|book|booking|request)\b", value):
         return "prepare_draft"
+    search_hints = {
+        "equipment",
+        "find",
+        "lab",
+        "machine",
+        "need",
+        "resource",
+        "resources",
+        "search",
+        "tool",
+        "want",
+    }
+    if not (_words(value) & search_hints) and not re.search(
+        r"\b(find|search|browse|show)\b.*\b(resources?|equipment|tools?)\b|"
+        r"\b(laser|cutter|gpu|printer|oscilloscope|microscope|cnc|drone|"
+        r"workstation|studio|bench|room|hyderabad|bengaluru|chennai|pune|"
+        r"mumbai|noida|kolkata)\b",
+        value,
+    ):
+        return "general_help"
     return "find_resources"
 
 
@@ -186,6 +206,23 @@ def run_rules(
         )
         return _result(answer, [], [], None, _quick_actions(intent), source, request_id, intent)
 
+    if intent == "general_help":
+        answer = (
+            "Hi! I can help find equipment by type or city, explain access "
+            "requirements, check your eligibility, or prepare a request for your "
+            "review. What would you like to use, and where?"
+        )
+        return _result(
+            answer,
+            [],
+            [],
+            None,
+            _quick_actions(intent),
+            source,
+            request_id,
+            intent,
+        )
+
     if intent_override and not intent.startswith("unsupported_"):
         intent = _mapped_model_intent(intent_override, intent)
 
@@ -194,6 +231,21 @@ def run_rules(
         return _result(answer, [], [], None, _quick_actions(intent), source, request_id, intent)
 
     resources = scoped_resources(session, user)
+    if not resources:
+        answer = (
+            "There are no resources in this account's catalog yet. Ask your "
+            "institution's manager to publish or seed the sample catalog, then try again."
+        )
+        return _result(
+            answer,
+            [],
+            [],
+            None,
+            _quick_actions("general_help"),
+            source,
+            request_id,
+            intent,
+        )
     slot = parse_slot(message)
     candidates = [
         resource
@@ -620,7 +672,11 @@ def _reply_for(
             "the existing request form to submit it."
         )
     if not resources:
-        return "I couldn't find a matching resource in the resources you can access. Try another purpose, city, or area."
+        return (
+            "I couldn't find a close match in your catalog. Try a resource type, "
+            "a city or area, or what you want to make—for example, "
+            "\"laser cutter in Hyderabad\" or \"GPU workstation for machine learning\"."
+        )
     if intent == "explain_requirements":
         return _requirements_reply(session, resources)
     if intent == "check_eligibility":
@@ -727,6 +783,12 @@ def _mapped_model_intent(model_intent: str, rules_intent: str) -> str:
 
 
 def _quick_actions(intent: str) -> list[str]:
+    if intent == "general_help":
+        return [
+            "Find a laser cutter in Hyderabad",
+            "Check my eligibility",
+            "Prepare a request draft",
+        ]
     if intent == "prepare_draft":
         return ["Check eligibility", "Find another resource"]
     if intent == "explain_request":

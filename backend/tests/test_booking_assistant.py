@@ -53,6 +53,33 @@ def test_rules_find_correct_resources_for_each_seed_city(requester_login):
         assert suggestions == expected
 
 
+def test_natural_laser_query_matches_hyderabad_resource(requester_login):
+    catalog = requester_login.get("/api/resources").json()["items"]
+    laser_ids = {
+        item["id"]
+        for item in catalog
+        if item["city"] == "Hyderabad"
+        and "laser" in item["name"].casefold()
+    }
+
+    result = _chat(
+        requester_login,
+        "I need a laser cutter in Hyderabad tomorrow afternoon for a robotics prototype",
+    )
+
+    suggested_ids = {item["resource_id"] for item in result["suggestions"]}
+    assert laser_ids
+    assert suggested_ids & laser_ids
+    assert "couldn't find" not in result["reply_text"].casefold()
+
+
+def test_assistant_greeting_explains_supported_tasks(requester_login):
+    result = _chat(requester_login, "Hi, what can you help me with?")
+
+    assert "find equipment" in result["reply_text"].casefold()
+    assert result["quick_actions"]
+
+
 def test_missing_training_includes_blocker_and_next_action(client):
     login(client, "requester_c")
 
