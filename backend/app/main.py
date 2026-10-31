@@ -1,5 +1,6 @@
 import logging
 import os
+from threading import Lock
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
@@ -22,6 +23,7 @@ from app.api.dashboard import router as dashboard_router
 from app.api.incidents import router as incidents_router
 from app.api.notifications import router as notifications_router
 from app.api.policies import router as policies_router
+from app.api.public import router as public_router
 from app.api.requests import router as requests_router
 from app.api.resources import router as resources_router
 from app.database import (
@@ -91,6 +93,9 @@ def create_app(
         if demo_mode is not None
         else os.environ.get("DEMO_MODE", "false").casefold() == "true"
     )
+    app.state.public_summary_buckets = {}
+    app.state.public_summary_lock = Lock()
+    app.state.public_summary_cleanup_at = 0.0
 
     app.add_middleware(
         SessionMiddleware,
@@ -282,6 +287,7 @@ def create_app(
     app.include_router(incidents_router)
     app.include_router(notifications_router)
     app.include_router(policies_router)
+    app.include_router(public_router)
     app.include_router(requests_router)
     app.include_router(resources_router)
 

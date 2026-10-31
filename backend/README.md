@@ -41,10 +41,13 @@ reset only demo rows.
 ## Resource catalog and dashboards
 
 Authenticated users can browse detailed resource profiles at `GET /api/resources`
-and `GET /api/resources/{id}`. The catalog supports text, category, status,
-supervision, and training filters; details include readiness and a per-requirement
-eligibility checklist. Lab managers can create resources with `POST /api/resources`
-and edit only resources they own with `PATCH /api/resources/{id}`. Supply
+and `GET /api/resources/{id}`. Requesters can discover resources across
+organizations; lab managers see resources in their own organization and can edit
+only resources they own. The catalog supports text, city, area, organization,
+category, status, supervision, and training filters; details include readiness
+and a per-requirement eligibility checklist. Lab managers can create resources
+with `POST /api/resources` and edit only resources they own with
+`PATCH /api/resources/{id}`. Supply
 `policy_change_reason` when activating an initial policy or editing a resource;
 each edit creates a new active policy version and leaves existing Access Contracts
 unchanged.
@@ -54,10 +57,16 @@ Requester and manager summary views are available at
 counts and up to five upcoming bookings, pending requests, open incidents, and
 training records expiring within 30 days.
 
-The deterministic demo seed includes six fictional resources marked as sample
-data, historical booking and training records, competing requests, a waitlist
-explanation, and audit history. Startup upgrades the legacy resource table in
-SQLite and PostgreSQL databases before serving API requests.
+The deterministic seed includes eight fictional institutions in Indian cities,
+27 fictional resources, 40 fictional users, 80 training records, 120 recent
+historical bookings, pending and waitlisted requests, four incidents, and audit
+history. All seeded institutions, people, resources, bookings, training,
+incidents, and audit entries are synthetic demo data; none represent real
+institutions or live institutional statistics. Access labels are informational:
+no payments are processed.
+
+Startup upgrades legacy resource and user columns in SQLite and PostgreSQL
+databases before serving API requests.
 
 ## Demo login
 

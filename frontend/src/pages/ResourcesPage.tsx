@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { Role } from "../api/types";
 import { Badge, Stepper } from "../components/UI";
@@ -36,6 +36,10 @@ interface ResourceItem {
   description: string;
   capability_tags: string[];
   location: string;
+  organization_id: string;
+  organization_name: string;
+  city: string;
+  area: string;
   building: string;
   room: string;
   status: string;
@@ -48,6 +52,8 @@ interface ResourceItem {
 
 interface ResourceDetail extends ResourceItem {
   owner_id: string;
+  organization_type: string;
+  id_required: string;
   address_note: string;
   hold_review_date: string | null;
   hold_reason: string | null;
@@ -60,6 +66,7 @@ interface ResourceDetail extends ResourceItem {
   safety_notes: string[];
   accessories_included: string[];
   condition_notes: string;
+  access_model: string;
   max_session_hours: number | null;
   advance_booking_window: number | null;
   cancellation_cutoff: number;
@@ -112,6 +119,9 @@ interface ResourceMemory {
 
 interface CatalogFilters {
   query: string;
+  city: string;
+  area: string;
+  organization: string;
   category: string;
   status: string;
   supervised: string;
@@ -138,12 +148,29 @@ function ResourcePlaceholder({ category }: { category: string }) {
 }
 
 export function ResourcesPage() {
+  const [searchParams] = useSearchParams();
+  const initialCity = searchParams.get("city") ?? "";
+  const initialFilters: CatalogFilters = {
+    query: "",
+    city: initialCity,
+    area: "",
+    organization: "",
+    category: "",
+    status: "",
+    supervised: "",
+    training: "",
+    sort: "name",
+  };
   const [items, setItems] = useState<ResourceItem[]>([]);
   const [categoryOptions, setCategoryOptions] = useState<string[]>([]);
-  const [filters, setFilters] = useState<CatalogFilters>({
-    query: "", category: "", status: "", supervised: "", training: "", sort: "name",
-  });
-  const [appliedFilters, setAppliedFilters] = useState<CatalogFilters>(filters);
+  const [cityOptions, setCityOptions] = useState<string[]>([]);
+  const [areaOptions, setAreaOptions] = useState<string[]>([]);
+  const [organizationOptions, setOrganizationOptions] = useState<
+    { id: string; name: string }[]
+  >([]);
+  const [filters, setFilters] = useState<CatalogFilters>(initialFilters);
+  const [appliedFilters, setAppliedFilters] = useState<CatalogFilters>(initialFilters);
+  const [total, setTotal] = useState(0);
   const [visibleCount, setVisibleCount] = useState(9);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
@@ -153,6 +180,9 @@ export function ResourcesPage() {
     setError(null);
     const params = new URLSearchParams();
     if (selected.query.trim()) params.set("query", selected.query.trim());
+    if (selected.city) params.set("city", selected.city);
+    if (selected.area) params.set("area", selected.area);
+    if (selected.organization) params.set("organization", selected.organization);
     if (selected.category) params.set("category", selected.category);
     if (selected.status) params.set("status", selected.status);
     if (selected.supervised) params.set("supervised", selected.supervised);
@@ -161,9 +191,20 @@ export function ResourcesPage() {
     try {
       const result = await api.get<ResourceListResponse>(`/resources?${params.toString()}`);
       setItems(result.items);
+      setTotal(result.total);
       setVisibleCount(9);
-      if (!selected.query && !selected.category && !selected.status && !selected.supervised && !selected.training) {
+      if (!selected.query && !selected.city && !selected.area && !selected.organization && !selected.category && !selected.status && !selected.supervised && !selected.training) {
         setCategoryOptions([...new Set(result.items.map((item) => item.category))].sort());
+        setCityOptions([...new Set(result.items.map((item) => item.city).filter(Boolean))].sort());
+        setAreaOptions([...new Set(result.items.map((item) => item.area).filter(Boolean))].sort());
+        setOrganizationOptions(
+          [...new Map(
+            result.items.map((item) => [
+              item.organization_id,
+              { id: item.organization_id, name: item.organization_name },
+            ]),
+          ).values()].sort((first, second) => first.name.localeCompare(second.name)),
+        );
       }
     } catch (loadError) {
       setError(loadError);
@@ -173,6 +214,30 @@ export function ResourcesPage() {
   }, []);
 
   useEffect(() => { void load(appliedFilters); }, [appliedFilters, load]);
+  useEffect(() => {
+    if (!initialCity) return;
+    let active = true;
+    void api.get<ResourceListResponse>("/resources").then(
+      (result) => {
+        if (!active) return;
+        setCategoryOptions([...new Set(result.items.map((item) => item.category))].sort());
+        setCityOptions([...new Set(result.items.map((item) => item.city).filter(Boolean))].sort());
+        setAreaOptions([...new Set(result.items.map((item) => item.area).filter(Boolean))].sort());
+        setOrganizationOptions(
+          [...new Map(
+            result.items.map((item) => [
+              item.organization_id,
+              { id: item.organization_id, name: item.organization_name },
+            ]),
+          ).values()].sort((first, second) => first.name.localeCompare(second.name)),
+        );
+      },
+      (loadError: unknown) => active && setError(loadError),
+    );
+    return () => {
+      active = false;
+    };
+  }, [initialCity]);
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -183,8 +248,11 @@ export function ResourcesPage() {
     <>
       <PageHeading
         title="Find a resource"
-        description="Explore equipment and spaces shared by your institution. Eligibility and availability are checked by the service."
+        description="Explore equipment and spaces shared by participating institutions. Eligibility and availability are checked by the service."
       />
+      <p className="sample-data-banner" role="note">
+        All institutions, people and bookings in this prototype are fictional sample data.
+      </p>
       <form className="filter-bar catalog-filters" onSubmit={applyFilters}>
         <div className="filter-search">
           <label className="field-label" htmlFor="resource-search">Search resources</label>
@@ -196,6 +264,27 @@ export function ResourcesPage() {
             onChange={(event) => setFilters({ ...filters, query: event.target.value })}
             placeholder="Name, category, location, or capability"
           />
+        </div>
+        <div>
+          <label className="field-label" htmlFor="resource-city">City</label>
+          <select id="resource-city" className="select" value={filters.city} onChange={(event) => setFilters({ ...filters, city: event.target.value })}>
+            <option value="">All cities</option>
+            {cityOptions.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="field-label" htmlFor="resource-area">Area</label>
+          <select id="resource-area" className="select" value={filters.area} onChange={(event) => setFilters({ ...filters, area: event.target.value })}>
+            <option value="">All areas</option>
+            {areaOptions.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="field-label" htmlFor="resource-organization">Organization</label>
+          <select id="resource-organization" className="select" value={filters.organization} onChange={(event) => setFilters({ ...filters, organization: event.target.value })}>
+            <option value="">All organizations</option>
+            {organizationOptions.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+          </select>
         </div>
         <div>
           <label className="field-label" htmlFor="resource-category">Category</label>
@@ -241,10 +330,14 @@ export function ResourcesPage() {
 
       {loading && <Loading label="Loading resources…" />}
       {error !== null && <ErrorState error={error} />}
+      {!loading && error === null && (
+        <p className="muted result-count" role="status">
+          {total} {total === 1 ? "resource" : "resources"} found
+        </p>
+      )}
       {!loading && error === null && items.length === 0 && <EmptyState>No resources match these filters.</EmptyState>}
       {!loading && error === null && items.length > 0 && (
         <>
-          <p className="muted result-count">{items.length} {items.length === 1 ? "resource" : "resources"} returned by the catalog</p>
           <div className="resource-grid">
             {items.slice(0, visibleCount).map((resource) => (
               <article className="resource-card resource-card-detailed" key={resource.id}>
@@ -256,7 +349,10 @@ export function ResourcesPage() {
                 <Badge>{statusLabel(resource.status)}</Badge>
                 {resource.short_summary.toLowerCase().startsWith("sample data") && <Badge>Sample data</Badge>}
                 <p className="resource-summary">{resource.short_summary}</p>
-                <p className="muted resource-location">{resource.location}</p>
+                <p className="resource-institution">{resource.organization_name}</p>
+                <p className="muted resource-location">
+                  {[resource.area, resource.city].filter(Boolean).join(", ") || resource.location}
+                </p>
                 <div className="tag-list">
                   <Badge tone={resource.supervision_required ? "warning" : "neutral"}>
                     {resource.supervision_required ? "Supervision required" : "No supervision required"}
@@ -433,6 +529,17 @@ export function ResourceDetailPage({ role }: { role: Role }) {
         <StatusBadge value="" ready={data.readiness.ready} />
         <Badge>{statusLabel(resource.status)}</Badge>
       </div>
+      <article className="panel institution-profile">
+        <div>
+          <p className="eyebrow">INSTITUTION PROFILE</p>
+          <h2>{resource.organization_name}</h2>
+        </div>
+        <dl className="institution-profile-facts">
+          <div><dt>City</dt><dd>{resource.city || "Not provided by the catalog API"}</dd></div>
+          <div><dt>Area</dt><dd>{resource.area || "Not provided by the catalog API"}</dd></div>
+          <div><dt>Type</dt><dd>{resource.organization_type}</dd></div>
+        </dl>
+      </article>
       <nav className="detail-tabs" role="tablist" aria-label="Resource details">
         {detailTabs.map((tab, index) => (
           <button
@@ -462,18 +569,37 @@ export function ResourceDetailPage({ role }: { role: Role }) {
         <section className="detail-layout" id="resource-panel-overview" role="tabpanel" aria-labelledby="resource-tab-overview">
           <article className="panel">
             <h2>About this resource</h2>
+            <p><strong>Summary:</strong> {resource.short_summary}</p>
             <p>{resource.description || resource.short_summary}</p>
+            <p><strong>Category:</strong> {statusLabel(resource.category)}</p>
+            <p><strong>Resource ID:</strong> <code>{resource.id}</code></p>
+            <p><strong>Resource owner ID:</strong> <code>{resource.owner_id}</code></p>
+            <p><strong>Organization ID:</strong> <code>{resource.organization_id}</code></p>
             <h3>Location</h3>
-            <p>{[resource.building, resource.room, resource.address_note].filter(Boolean).join(" · ") || resource.location}</p>
+            <p>{[resource.city, resource.area, resource.building, resource.room, resource.address_note].filter(Boolean).join(" · ") || resource.location}</p>
+            <p><strong>Location label:</strong> {resource.location}</p>
             {resource.capacity !== null && <p><strong>Capacity:</strong> {resource.capacity}</p>}
             {resource.quantity !== null && <p><strong>Quantity:</strong> {resource.quantity}</p>}
             {resource.who_can_use.length > 0 && <><h3>Who can use it</h3><ul className="simple-list">{resource.who_can_use.map((entry) => <li key={entry}>{entry}</li>)}</ul></>}
+            <h3>ID needed</h3>
+            <p>{resource.id_required}</p>
           </article>
           <article className="panel">
             <h2>Operating hours (IST)</h2>
             {resource.operating_hours.length ? <ul className="simple-list">{resource.operating_hours.map((window, index) => <li key={`${window.weekday}-${index}`}>{formatWindow(window)}</li>)}</ul> : <p className="muted">No operating hours are listed by the service.</p>}
             <p className="helper">Hours describe when this resource may be requested; the owner still reviews every request.</p>
             {resource.hold_reason && <p className="alert alert-warning"><strong>Maintenance hold</strong>{resource.hold_reason}{resource.hold_review_date && ` Review date: ${resource.hold_review_date}.`}</p>}
+            <h3>Booking and access</h3>
+            <dl className="resource-detail-facts">
+              <div><dt>Maximum session</dt><dd>{resource.max_session_hours !== null ? `${resource.max_session_hours} hours` : "Not specified"}</dd></div>
+              <div><dt>Maximum duration</dt><dd>{resource.max_duration_minutes !== null ? `${resource.max_duration_minutes} minutes` : "Not specified"}</dd></div>
+              <div><dt>Advance booking window</dt><dd>{resource.advance_booking_window !== null ? `${resource.advance_booking_window} days` : "Not specified"}</dd></div>
+              <div><dt>Cancellation cutoff</dt><dd>{resource.cancellation_cutoff} hours before the start</dd></div>
+              <div><dt>Booking model</dt><dd>{resource.exclusive_booking ? "Exclusive booking" : "Shared capacity"}</dd></div>
+              <div><dt>Access model</dt><dd>{resource.access_model}</dd></div>
+            </dl>
+            <h3>Capability tags</h3>
+            {resource.capability_tags.length > 0 ? <div className="tag-list">{resource.capability_tags.map((tag) => <Badge key={tag}>{tag}</Badge>)}</div> : <p className="muted">No capability tags are listed.</p>}
           </article>
         </section>
       )}
@@ -485,6 +611,10 @@ export function ResourceDetailPage({ role }: { role: Role }) {
             {resource.usage_rules.length ? <ul className="simple-list">{resource.usage_rules.map((rule) => <li key={rule}>{rule}</li>)}</ul> : <p className="muted">No additional use rules are listed.</p>}
             <h3>Allowed uses</h3>
             {policy?.allowed_uses.length ? <ul className="simple-list">{policy.allowed_uses.map((use) => <li key={use}>{statusLabel(use)}</li>)}</ul> : <p>No active allowed-use policy is available.</p>}
+            <h3>Required training</h3>
+            {resource.required_training.length ? <ul className="simple-list">{resource.required_training.map((entry) => <li key={entry}>{entry}</li>)}</ul> : <p className="muted">No required training is listed.</p>}
+            <h3>Supervision windows (IST)</h3>
+            {resource.supervised_windows.length > 0 ? <ul className="simple-list">{resource.supervised_windows.map((window, index) => <li key={`${window.weekday}-${index}`}>{formatWindow(window)}</li>)}</ul> : <p className="muted">No supervised windows are listed.</p>}
             <p className="helper">Your selected use is recorded with the request so the owner can review its fit.</p>
           </article>
           <article className="panel">
@@ -493,6 +623,8 @@ export function ResourceDetailPage({ role }: { role: Role }) {
             <h3>Included accessories</h3>
             {resource.accessories_included.length ? <ul className="simple-list">{resource.accessories_included.map((item) => <li key={item}>{item}</li>)}</ul> : <p>No accessories are listed.</p>}
             {resource.condition_notes && <p><strong>Condition notes:</strong> {resource.condition_notes}</p>}
+            <h3>Access model</h3>
+            <p>{resource.access_model}</p>
             <p className="helper">The check-in and return checklist records condition and accessories to support a consistent handover.</p>
           </article>
         </section>
@@ -507,6 +639,7 @@ export function ResourceDetailPage({ role }: { role: Role }) {
               {(requirements?.training_codes ?? resource.required_training).map((code) => <Badge tone="info" key={code}>{code}</Badge>)}
             </div>
             {resource.supervised_windows.length > 0 && <ul className="simple-list mt-4">{resource.supervised_windows.map((window, index) => <li key={`${window.weekday}-${index}`}>{formatWindow(window)}</li>)}</ul>}
+            {resource.supervised_windows.length === 0 && <p className="muted">No supervised windows are listed.</p>}
             <p className="helper">Eligibility is evaluated for the time you request. Training and supervision rules are taken from the active policy.</p>
           </article>
           <article className="panel">

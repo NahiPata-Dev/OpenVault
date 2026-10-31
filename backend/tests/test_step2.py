@@ -14,6 +14,7 @@ from app.models import (
     AuditEvent,
     Resource,
     ResourcePolicy,
+    TrainingRecord,
     User,
 )
 from app.seed import DEMO_USER_IDS, RESOURCE_IDS, SEED_OBJECT_IDS
@@ -34,8 +35,16 @@ def test_expired_training_blocks_request(client):
     with client.app.state.session_factory() as session:
         user = session.get(User, DEMO_USER_IDS["requester_b"])
         resource = session.get(Resource, RESOURCE_IDS["oscilloscope"])
-        record = user.training_records[0]
-        record.valid_to = datetime.now(timezone.utc) - timedelta(days=1)
+        records = session.scalars(
+            select(TrainingRecord).where(
+                TrainingRecord.user_id == user.id,
+                TrainingRecord.requirement_code == "OSCILLOSCOPE_SAFETY",
+                TrainingRecord.status == "valid",
+            )
+        ).all()
+        assert records
+        for record in records:
+            record.valid_to = datetime.now(timezone.utc) - timedelta(days=1)
         session.commit()
         start = _next_weekday_interval()
         result = evaluate_readiness(session, user, resource, start, start + timedelta(hours=1))

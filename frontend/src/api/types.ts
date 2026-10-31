@@ -18,6 +18,15 @@ export interface DemoAccount {
   role: Role;
 }
 
+export interface PublicSummary {
+  cities: {
+    city: string;
+    resource_count: number;
+    organization_count: number;
+  }[];
+  categories: string[];
+}
+
 export interface APIErrorDetail {
   code: string;
   message: string;

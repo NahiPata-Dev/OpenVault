@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ApiError, api } from "../api/client";
-import type { DemoAccount, Role } from "../api/types";
+import type { DemoAccount, PublicSummary, Role } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { PageHeading } from "../components/PageHeading";
+import { ErrorState, Loading } from "../components/Feedback";
 import {
   Alert,
   Badge,
@@ -117,6 +118,8 @@ export function LandingPage() {
           </div>
         </section>
 
+        <BrowseByCity userIsSignedIn={Boolean(user)} />
+
         <section className="how-section" id="how-it-works">
           <div className="section-wrap">
             <div className="section-intro section-intro-centered">
@@ -173,6 +176,61 @@ export function LandingPage() {
         <span>© OpenVault</span>
       </footer>
     </div>
+  );
+}
+
+function BrowseByCity({ userIsSignedIn }: { userIsSignedIn: boolean }) {
+  const [cities, setCities] = useState<PublicSummary["cities"]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<unknown>(null);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError(null);
+    void api.get<PublicSummary>("/public/summary").then(
+      (result) => active && setCities(result.cities),
+      (loadError: unknown) => active && setError(loadError),
+    ).finally(() => active && setLoading(false));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return (
+    <section className="browse-city-section section-wrap" aria-labelledby="browse-city-title">
+      <div className="section-intro">
+        <p className="eyebrow">EXPLORE THE CATALOG</p>
+        <h2 id="browse-city-title">Browse by city.</h2>
+        <p>See the resources and organizations listed for each city.</p>
+      </div>
+      {error !== null ? (
+        <ErrorState error={error} />
+      ) : loading ? (
+        <Loading label="Loading city summary…" />
+      ) : cities.length === 0 ? (
+        <p className="muted">No city information is currently available.</p>
+      ) : (
+        <div className="browse-city-grid">
+          {cities.map((entry) => (
+            <Link
+              className="browse-city-card"
+              key={entry.city}
+              to={userIsSignedIn
+                ? `/resources?city=${encodeURIComponent(entry.city)}`
+                : `/login?next=${encodeURIComponent(`/resources?city=${entry.city}`)}`}
+            >
+              <span aria-hidden="true">⌖</span>
+              <strong>{entry.city}</strong>
+              <small>
+                {entry.resource_count} {entry.resource_count === 1 ? "resource" : "resources"} ·{" "}
+                {entry.organization_count} {entry.organization_count === 1 ? "organization" : "organizations"}
+              </small>
+            </Link>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

@@ -29,6 +29,7 @@ def build_session_factory(engine: Engine) -> sessionmaker[Session]:
 
 
 def migrate_legacy_resource_schema(engine: Engine) -> None:
+    _migrate_legacy_user_schema(engine)
     if engine.dialect.name == "postgresql":
         _migrate_legacy_postgresql_resources(engine)
         return
@@ -54,6 +55,9 @@ def migrate_legacy_resource_schema(engine: Engine) -> None:
         "short_summary": "''",
         "description": "''",
         "building": "''",
+        "city": "''",
+        "area": "''",
+        "id_required": "'Institution ID card'",
         "room": "''",
         "address_note": "''",
         "hold_reason": "NULL",
@@ -75,6 +79,7 @@ def migrate_legacy_resource_schema(engine: Engine) -> None:
         "cancellation_cutoff": "2",
         "accessories_included": "'[]'",
         "condition_notes": "''",
+        "access_model": "'free for members; no payments are processed'",
     }
     upgrade_table = "resources__schema_upgrade"
     raw_connection = engine.raw_connection()
@@ -142,6 +147,9 @@ def _migrate_legacy_postgresql_resources(engine: Engine) -> None:
         "short_summary": "''",
         "description": "''",
         "building": "''",
+        "city": "''",
+        "area": "''",
+        "id_required": "'Institution ID card'",
         "room": "''",
         "address_note": "''",
         "hold_reason": "NULL",
@@ -163,6 +171,7 @@ def _migrate_legacy_postgresql_resources(engine: Engine) -> None:
         "cancellation_cutoff": "2",
         "accessories_included": "'[]'::json",
         "condition_notes": "''",
+        "access_model": "'free for members; no payments are processed'",
     }
     missing_columns = [
         column
@@ -209,6 +218,23 @@ def _migrate_legacy_postgresql_resources(engine: Engine) -> None:
         )
         for index in Resource.__table__.indexes:
             index.create(bind=connection, checkfirst=True)
+
+
+def _migrate_legacy_user_schema(engine: Engine) -> None:
+    if engine.dialect.name not in {"sqlite", "postgresql"}:
+        return
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names():
+        return
+    existing_columns = {
+        column["name"] for column in inspector.get_columns("users")
+    }
+    with engine.begin() as connection:
+        for name in ("department", "designation"):
+            if name not in existing_columns:
+                connection.exec_driver_sql(
+                    f'ALTER TABLE users ADD COLUMN "{name}" VARCHAR(120)'
+                )
 
 
 def get_session(request: Request) -> Generator[Session, None, None]:
