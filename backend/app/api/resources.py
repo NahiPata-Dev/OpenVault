@@ -13,7 +13,15 @@ from app.database import get_session
 from app.dependencies import get_current_user, require_roles
 from app.domain.readiness import ACTIVE_BOOKING_STATES, active_policy, evaluate_readiness
 from app.errors import raise_api_error
-from app.models import Booking, Resource, ResourcePolicy, ResourceRequest, TrainingRecord, User
+from app.models import (
+    Booking,
+    Organization,
+    Resource,
+    ResourcePolicy,
+    ResourceRequest,
+    TrainingRecord,
+    User,
+)
 from app.schemas import (
     EligibilityChecklistItem,
     ResourceCreate,
@@ -37,6 +45,9 @@ DEFAULT_ALLOWED_USES = ["project", "coursework", "research"]
 def list_resources(
     query: str | None = Query(default=None, max_length=160),
     category: str | None = Query(default=None, max_length=80),
+    city: str | None = Query(default=None, max_length=100),
+    area: str | None = Query(default=None, max_length=120),
+    organization: str | None = Query(default=None, max_length=200),
     status: Literal["active", "maintenance_hold", "retired"] | None = None,
     supervised: bool | None = None,
     training_required: bool | None = None,
@@ -56,17 +67,26 @@ def list_resources(
     ):
         raise_api_error("validation_error", "The requested interval is invalid.", 422)
 
-    resources = session.scalars(
+    resource_query = (
         select(Resource)
         .options(joinedload(Resource.owner))
-        .where(Resource.owner.has(organization_id=user.organization_id))
         .order_by(Resource.name)
-    ).unique().all()
+    )
+    if user.role == "lab_manager":
+        resource_query = resource_query.where(
+            Resource.owner.has(organization_id=user.organization_id)
+        )
+    resources = session.scalars(resource_query).unique().all()
+    organizations = {
+        row.id: row
+        for row in session.scalars(select(Organization)).all()
+    }
     needle = query.casefold().strip() if query else None
     results: list[tuple[ResourceListItem, datetime | None]] = []
     for resource in resources:
         policy = active_policy(session, resource.id)
         policy_requirements = policy.structured_requirements if policy else {}
+        owner_organization = organizations.get(resource.owner.organization_id)
         resource_supervised = bool(
             policy_requirements.get(
                 "supervisor_required", resource.supervision_required
@@ -75,6 +95,22 @@ def list_resources(
         required_training = _training_names(resource, policy)
         if category and resource.category.casefold() != category.casefold():
             continue
+        if city and resource.city.casefold() != city.casefold():
+            continue
+        if area and resource.area.casefold() != area.casefold():
+            continue
+        if organization:
+            organization_value = organization.casefold().strip()
+            organization_fields = (
+                resource.owner.organization_id,
+                owner_organization.name if owner_organization else "",
+            )
+            if not any(
+                organization_value in value.casefold()
+                for value in organization_fields
+                if value
+            ):
+                continue
         if status and resource.status != status:
             continue
         if supervised is not None and resource_supervised != supervised:
@@ -88,6 +124,10 @@ def list_resources(
                 resource.short_summary,
                 resource.description,
                 resource.location,
+                resource.city,
+                resource.area,
+                resource.owner.organization_id,
+                owner_organization.name if owner_organization else "",
                 resource.building,
                 resource.room,
                 resource.address_note,
@@ -100,6 +140,7 @@ def list_resources(
                 *resource.usage_rules,
                 *resource.safety_notes,
                 *resource.accessories_included,
+                resource.access_model,
             ]
             if not any(needle in field.casefold() for field in fields if field):
                 continue
@@ -117,6 +158,20 @@ def list_resources(
                     description=resource.description,
                     capability_tags=resource.capability_tags,
                     location=resource.location,
+                    organization_id=resource.owner.organization_id,
+                    organization_name=(
+                        owner_organization.name
+                        if owner_organization
+                        else resource.owner.organization_id
+                    ),
+                    organization_type=(
+                        owner_organization.type
+                        if owner_organization
+                        else "institution"
+                    ),
+                    city=resource.city,
+                    area=resource.area,
+                    id_required=resource.id_required,
                     building=resource.building,
                     room=resource.room,
                     capacity=resource.capacity,
@@ -156,7 +211,8 @@ def get_resource(
     )
     if resource is None:
         raise_api_error("not_found", "Resource not found.", 404)
-    ensure_same_organization(user, resource)
+    if user.role == "lab_manager":
+        ensure_same_organization(user, resource)
     if (start_at is None) != (end_at is None):
         raise_api_error("validation_error", "start_at and end_at must be provided together.", 422)
     if start_at is not None and (
@@ -169,7 +225,11 @@ def get_resource(
         session, user, resource, policy, readiness, start_at, end_at, purpose
     )
     return ResourceResponse(
-        resource=_resource_read(resource, policy),
+        resource=_resource_read(
+            resource,
+            policy,
+            _organization_profile(session, resource),
+        ),
         active_policy=ResourcePolicyRead.model_validate(policy) if policy else None,
         readiness=ReadinessRead.model_validate(readiness),
         eligibility_checklist=checklist,
@@ -197,6 +257,9 @@ def create_resource(
         description=payload.description,
         capability_tags=payload.capability_tags,
         location=location,
+        city=payload.city,
+        area=payload.area,
+        id_required=payload.id_required,
         building=payload.building,
         room=payload.room,
         address_note=payload.address_note,
@@ -218,6 +281,7 @@ def create_resource(
         cancellation_cutoff=payload.cancellation_cutoff,
         accessories_included=payload.accessories_included,
         condition_notes=payload.condition_notes,
+        access_model=payload.access_model,
         max_duration_minutes=duration_minutes,
         exclusive_booking=payload.exclusive_booking,
         is_demo=user.is_demo,
@@ -436,7 +500,11 @@ def update_resource(
     return _resource_response(session, user, resource, policy)
 
 
-def _resource_read(resource: Resource, policy: ResourcePolicy | None) -> ResourceRead:
+def _resource_read(
+    resource: Resource,
+    policy: ResourcePolicy | None,
+    organization: Organization | None,
+) -> ResourceRead:
     policy_requirements = policy.structured_requirements if policy else {}
     return ResourceRead(
         id=resource.id,
@@ -447,6 +515,16 @@ def _resource_read(resource: Resource, policy: ResourcePolicy | None) -> Resourc
         description=resource.description,
         capability_tags=resource.capability_tags,
         location=resource.location,
+        organization_id=resource.owner.organization_id,
+        organization_name=(
+            organization.name
+            if organization
+            else resource.owner.organization_id
+        ),
+        organization_type=organization.type if organization else "institution",
+        city=resource.city,
+        area=resource.area,
+        id_required=resource.id_required,
         building=resource.building,
         room=resource.room,
         address_note=resource.address_note,
@@ -473,6 +551,7 @@ def _resource_read(resource: Resource, policy: ResourcePolicy | None) -> Resourc
         cancellation_cutoff=resource.cancellation_cutoff,
         accessories_included=resource.accessories_included,
         condition_notes=resource.condition_notes,
+        access_model=resource.access_model,
         max_duration_minutes=resource.max_duration_minutes,
         exclusive_booking=resource.exclusive_booking,
         is_demo=resource.is_demo,
@@ -488,13 +567,24 @@ def _resource_response(
     policy = policy or active_policy(session, resource.id)
     readiness = evaluate_readiness(session, user, resource)
     return ResourceResponse(
-        resource=_resource_read(resource, policy),
+        resource=_resource_read(
+            resource,
+            policy,
+            _organization_profile(session, resource),
+        ),
         active_policy=ResourcePolicyRead.model_validate(policy) if policy else None,
         readiness=ReadinessRead.model_validate(readiness),
         eligibility_checklist=_eligibility_checklist(
             session, user, resource, policy, readiness, None, None, None
         ),
     )
+
+
+def _organization_profile(
+    session: Session,
+    resource: Resource,
+) -> Organization | None:
+    return session.get(Organization, resource.owner.organization_id)
 
 
 def _eligibility_checklist(

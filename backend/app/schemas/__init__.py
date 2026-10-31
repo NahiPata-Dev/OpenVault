@@ -240,6 +240,9 @@ class ResourceCreate(APIModel):
     description: str = Field(default="", max_length=8000)
     capability_tags: list[str] = Field(default_factory=list, max_length=100)
     location: str = Field(default="", max_length=160)
+    city: str = Field(default="", max_length=100)
+    area: str = Field(default="", max_length=120)
+    id_required: str = Field(default="Institution ID card", max_length=160)
     building: str = Field(default="", max_length=160)
     room: str = Field(default="", max_length=80)
     address_note: str = Field(default="", max_length=1000)
@@ -263,6 +266,9 @@ class ResourceCreate(APIModel):
     )
     accessories_included: list[str] = Field(default_factory=list, max_length=50)
     condition_notes: str = Field(default="", max_length=2000)
+    access_model: str = Field(
+        default="free for members; no payments are processed", max_length=160
+    )
     status: ResourceStatus = "active"
     hold_reason: str | None = Field(default=None, max_length=2000)
     hold_review_date: date | None = None
@@ -321,10 +327,14 @@ class ResourceCreate(APIModel):
         "short_summary",
         "description",
         "location",
+        "city",
+        "area",
+        "id_required",
         "building",
         "room",
         "address_note",
         "condition_notes",
+        "access_model",
         mode="before",
     )
     @classmethod
@@ -349,6 +359,9 @@ class ResourcePatch(APIModel):
     description: str | None = Field(default=None, max_length=8000)
     capability_tags: list[str] | None = Field(default=None, max_length=100)
     location: str | None = Field(default=None, max_length=160)
+    city: str | None = Field(default=None, max_length=100)
+    area: str | None = Field(default=None, max_length=120)
+    id_required: str | None = Field(default=None, max_length=160)
     building: str | None = Field(default=None, max_length=160)
     room: str | None = Field(default=None, max_length=80)
     address_note: str | None = Field(default=None, max_length=1000)
@@ -370,6 +383,7 @@ class ResourcePatch(APIModel):
     )
     accessories_included: list[str] | None = Field(default=None, max_length=50)
     condition_notes: str | None = Field(default=None, max_length=2000)
+    access_model: str | None = Field(default=None, max_length=160)
     status: ResourceStatus | None = None
     hold_reason: str | None = Field(default=None, max_length=2000)
     hold_review_date: date | None = None
@@ -394,6 +408,9 @@ class ResourcePatch(APIModel):
             "description",
             "capability_tags",
             "location",
+            "city",
+            "area",
+            "id_required",
             "building",
             "room",
             "address_note",
@@ -451,10 +468,14 @@ class ResourcePatch(APIModel):
         "short_summary",
         "description",
         "location",
+        "city",
+        "area",
+        "id_required",
         "building",
         "room",
         "address_note",
         "condition_notes",
+        "access_model",
         mode="before",
     )
     @classmethod
@@ -501,6 +522,12 @@ class ResourceRead(APIModel):
     description: str
     capability_tags: list[str]
     location: str
+    organization_id: str
+    organization_name: str
+    city: str
+    area: str
+    organization_type: str
+    id_required: str
     building: str
     room: str
     address_note: str
@@ -523,6 +550,7 @@ class ResourceRead(APIModel):
     cancellation_cutoff: float
     accessories_included: list[str]
     condition_notes: str
+    access_model: str
     max_duration_minutes: int | None
     exclusive_booking: bool
     is_demo: bool
@@ -548,6 +576,12 @@ class ResourceListItem(APIModel):
     description: str
     capability_tags: list[str]
     location: str
+    organization_id: str
+    organization_name: str
+    city: str
+    area: str
+    organization_type: str
+    id_required: str
     building: str
     room: str
     capacity: int | None
@@ -564,6 +598,17 @@ class ResourceListItem(APIModel):
 class ResourceListResponse(APIModel):
     items: list[ResourceListItem]
     total: int
+
+
+class PublicSummaryCity(APIModel):
+    city: str
+    resource_count: int
+    organization_count: int
+
+
+class PublicSummaryResponse(APIModel):
+    cities: list[PublicSummaryCity]
+    categories: list[str]
 
 
 class EligibilityChecklistItem(APIModel):
@@ -602,6 +647,7 @@ class ResourceRequestCreate(APIModel):
     purpose: str = Field(min_length=1, max_length=2000)
     start_at: datetime
     end_at: datetime
+    assistant_draft: bool = False
 
     @model_validator(mode="after")
     def valid_interval(self):

@@ -1,5 +1,52 @@
 # Judge Manual Test
 
+## Multi-city catalog and assistant-assisted request
+
+1. Start the backend and frontend using the setup commands in the repository
+   [README](../README.md). Sign out if already authenticated and open the public
+   home page. In **Browse by city**, verify the city cards and their resource and
+   organization counts load from the public summary. Select **Hyderabad**; the
+   city card takes a signed-out visitor to sign-in.
+2. Sign in as **Tara Iyer** (requester, Uppal Circuit & Fabrication House
+   (Sample)) with the shared demo password. In **Resources**, filter by
+   **Hyderabad**, **Uppal**, and the Uppal Circuit organization; then search for
+   **CO2 Laser Cutter**. Confirm that the card shows the institution and city,
+   and that the detail page identifies the sample resource.
+3. Open the floating **Booking assistant** and send exactly:
+
+   > I need a laser cutter in Hyderabad tomorrow afternoon for a robotics prototype
+
+   The assistant should suggest the Hyderabad laser resource and report an
+   eligibility failure. Select **View details**, open **Requirements**, and
+   inspect **Your eligibility** to see Tara's `Laser Safety Induction LSI-101`
+   blocker. “Tomorrow afternoon” is not a precise time range understood by the
+   rules parser, and “robotics prototype” is not one of the allowed-use values;
+   the assistant does not silently choose those details.
+4. Do not confirm a request while the blocker remains: the normal request API
+   saves a blocked submission as **INELIGIBLE**, which a manager cannot approve.
+   Sign in as **Lab Manager Meera Nair** and open **Training sign-off**. Select
+   **Tara Iyer**, **CO2 Laser Cutter**, and the listed
+   **Laser Safety Induction LSI-101** requirement. Record a verified **Valid**
+   sign-off with a current start date and a future end date. This is demo
+   training data, not a real-world certification.
+5. Sign back in as **Tara Iyer**. Ask the assistant about her eligibility again
+   and confirm the failure count is cleared; if needed, use **View details** >
+   **Requirements** to inspect the individual check. Prepare a draft with a
+   specific future slot and allowed use, for example:
+
+   > Prepare a draft for CO2 Laser Cutter in Hyderabad tomorrow 3pm to 5pm for a project
+
+   The assistant should return a draft for review. Check the displayed resource,
+   start and end times (IST), and purpose. Nothing is submitted until you select
+   **Confirm request**.
+6. Select **Confirm request**. For an eligible slot, expect **Submitted —
+   pending review**; the response is still a request, not a confirmed booking.
+   If a blocker remains, the server may save an **INELIGIBLE** request instead.
+7. Sign in as **Lab Manager Meera Nair**, open **Manager queue**, locate Tara's
+   pending CO2 Laser Cutter request, and select **Approve** with the required
+   reason. Expect the request to be approved and a booking created. The assistant
+   did not make this decision; the authorized manager did.
+
 ## Sign in and verify the training blocker
 
 1. Start the backend and frontend using the setup commands in the repository

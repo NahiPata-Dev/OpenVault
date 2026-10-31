@@ -124,7 +124,7 @@ def test_startup_seeds_empty_database_and_never_reseeds_existing_user(tmp_path, 
     with TestClient(empty_app):
         with empty_app.state.session_factory() as session:
             assert session.scalar(select(User.id)) is not None
-            assert len(session.scalars(select(User)).all()) == 6
+            assert len(session.scalars(select(User)).all()) == 40
 
     existing_url = f"sqlite:///{tmp_path / 'existing.sqlite'}"
     engine = build_engine(existing_url)

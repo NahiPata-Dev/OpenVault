@@ -58,13 +58,40 @@ database has no users. The seed script follows the same rule and leaves a
 database containing any user unchanged; use the restricted reset endpoint to
 reset only demo rows.
 
+### Deploying with Supabase and Vercel
+
+The frontend's `frontend/vercel.json` forwards `/api` requests to the configured
+Render backend. Configure `DATABASE_URL`, `SECRET_KEY`, and `DEMO_PASSWORD` on
+the Render backend service, not on Vercel. Vercel hosts the frontend and does not
+select the backend database. Keep database credentials in the hosting
+environment-variable settings; never put them in frontend variables or source
+control. Rotate any database password that has been shared outside the secret
+manager.
+
+The automatic seed runs only for an empty database. Changing `DATABASE_URL` to
+an existing Supabase database will not replace its current demo records. To
+refresh sample data, back up the database, deploy the current backend, enable
+`DEMO_MODE=true` only for this restricted demo deployment, then sign in as the
+Institution Admin and use **Administration → Reset seeded demo data**. This
+replaces rows marked as demo data and repopulates them from the deployed seed;
+it does not reset non-demo records. The action is irreversible for the demo
+requests, bookings, training records, and audit history it replaces.
+
+After the reset, `GET /api/public/summary` should return the sample cities and
+nonzero resource and organization counts. If it does not, verify that Render
+uses the intended Supabase `DATABASE_URL` and that the current backend commit
+has finished deploying.
+
 ## Resource catalog and dashboards
 
 Authenticated users can browse detailed resource profiles at `GET /api/resources`
-and `GET /api/resources/{id}`. The catalog supports text, category, status,
-supervision, and training filters; details include readiness and a per-requirement
-eligibility checklist. Lab managers can create resources with `POST /api/resources`
-and edit only resources they own with `PATCH /api/resources/{id}`. Supply
+and `GET /api/resources/{id}`. Requesters can discover resources across
+organizations; lab managers see resources in their own organization and can edit
+only resources they own. The catalog supports text, city, area, organization,
+category, status, supervision, and training filters; details include readiness
+and a per-requirement eligibility checklist. Lab managers can create resources
+with `POST /api/resources` and edit only resources they own with
+`PATCH /api/resources/{id}`. Supply
 `policy_change_reason` when activating an initial policy or editing a resource;
 each edit creates a new active policy version and leaves existing Access Contracts
 unchanged.
@@ -74,10 +101,36 @@ Requester and manager summary views are available at
 counts and up to five upcoming bookings, pending requests, open incidents, and
 training records expiring within 30 days.
 
-The deterministic demo seed includes six fictional resources marked as sample
-data, historical booking and training records, competing requests, a waitlist
-explanation, and audit history. Startup upgrades the legacy resource table in
-SQLite and PostgreSQL databases before serving API requests.
+The deterministic seed includes eight fictional institutions in Indian cities,
+27 fictional resources, 40 fictional users, 80 training records, 120 recent
+historical bookings, pending and waitlisted requests, four incidents, and audit
+history. All seeded institutions, people, resources, bookings, training,
+incidents, and audit entries are synthetic demo data; none represent real
+institutions or live institutional statistics. Access labels are informational:
+no payments are processed.
+
+Startup upgrades legacy resource and user columns in SQLite and PostgreSQL
+databases before serving API requests.
+
+## Booking assistant
+
+Authenticated requesters and lab managers can use `POST /api/assistant/chat`
+for deterministic resource search, requirements/readiness explanations, their
+own request outcomes, alternatives, and request drafts. The chat endpoint never
+submits a request. A client submits a confirmed draft through `POST /api/requests`
+and may set `assistant_draft: true` to add an audit event; this flag does not
+change eligibility or allocation.
+
+The rules engine is always available. An optional OpenAI-compatible provider is
+enabled only when `AI_API_KEY` is set and `AI_PROVIDER` is `openai` or
+`openai-compatible`. `AI_BASE_URL` and `AI_MODEL` may override the API endpoint
+and default model (`gpt-4o-mini`). Provider calls have an 8-second timeout and
+fall back to rules on errors. Only the user's message and scoped resource
+identifiers/catalog metadata are sent; resource descriptions, user records, and
+bookings are not sent to the model. Chat is limited to 20 messages per user per
+10 minutes. Configure provider variables on Render, never in the browser or
+Vercel's public frontend bundle. If no provider is configured, the assistant
+uses deterministic matching and guidance.
 
 ## Demo login
 

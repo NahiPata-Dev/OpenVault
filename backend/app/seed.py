@@ -1,5 +1,7 @@
 from datetime import date, datetime, time, timedelta, timezone
+import re
 from uuid import UUID, uuid5
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -14,6 +16,7 @@ from app.models import (
     HandoverReport,
     Incident,
     Notification,
+    Organization,
     Resource,
     ResourcePolicy,
     ResourceRequest,
@@ -31,6 +34,112 @@ DEMO_USER_IDS = {
     "lab_manager": str(uuid5(NAMESPACE, "user:lab-manager")),
     "institution_admin": str(uuid5(NAMESPACE, "user:institution-admin")),
     "judge_auditor": str(uuid5(NAMESPACE, "user:judge-auditor")),
+}
+ORGANIZATIONS = (
+    (
+        "northstar",
+        ORG_ID,
+        "Northstar Engineering Lab (Sample)",
+        "Engineering lab",
+        "Hyderabad",
+        "Gachibowli",
+    ),
+    (
+        "uppal",
+        str(uuid5(NAMESPACE, "organization:uppal-circuit-forge")),
+        "Uppal Circuit & Fabrication House (Sample)",
+        "Makerspace",
+        "Hyderabad",
+        "Uppal",
+    ),
+    (
+        "bengaluru",
+        str(uuid5(NAMESPACE, "organization:bengaluru-vertex-workshop")),
+        "Bengaluru Vertex Workshop Collective (Sample)",
+        "Innovation workshop",
+        "Bengaluru",
+        "Electronic City",
+    ),
+    (
+        "chennai",
+        str(uuid5(NAMESPACE, "organization:chennai-bluefern-house")),
+        "Chennai Bluefern Applied Science House (Sample)",
+        "Applied science lab",
+        "Chennai",
+        "OMR",
+    ),
+    (
+        "pune",
+        str(uuid5(NAMESPACE, "organization:pune-copperleaf-yard")),
+        "Pune Copperleaf Innovation Yard (Sample)",
+        "Innovation lab",
+        "Pune",
+        "Hinjewadi",
+    ),
+    (
+        "mumbai",
+        str(uuid5(NAMESPACE, "organization:mumbai-lanternfish-studio")),
+        "Mumbai Lanternfish Prototype Studio (Sample)",
+        "Prototype studio",
+        "Mumbai",
+        "Powai",
+    ),
+    (
+        "noida",
+        str(uuid5(NAMESPACE, "organization:noida-copperkite-commons")),
+        "Noida Copperkite Engineering Commons (Sample)",
+        "Engineering commons",
+        "Delhi NCR",
+        "Noida",
+    ),
+    (
+        "kolkata",
+        str(uuid5(NAMESPACE, "organization:kolkata-monsoon-circuit")),
+        "Kolkata Monsoon Circuit Works (Sample)",
+        "Electronics workshop",
+        "Kolkata",
+        "Salt Lake",
+    ),
+)
+ORGANIZATION_IDS = {row[0]: row[1] for row in ORGANIZATIONS}
+EXTENDED_USER_SPECS = (
+    ("uppal_manager", "Meera Nair", "lab_manager", "uppal", "Fabrication", "Lab Manager"),
+    ("uppal_r1", "Aarav Kulkarni", "requester", "uppal", "Mechanical Engineering", "B.Tech Year 2"),
+    ("uppal_r2", "Ishita Rao", "requester", "uppal", "Product Design", "B.Des Year 3"),
+    ("uppal_r3", "Kabir Menon", "requester", "uppal", "Electronics", "B.Tech Year 4"),
+    ("uppal_r4", "Tara Iyer", "requester", "uppal", "Robotics", "B.Tech Year 1"),
+    ("bengaluru_manager", "Devika Shetty", "lab_manager", "bengaluru", "Digital Systems", "Lab Manager"),
+    ("bengaluru_r1", "Rohan Deshmukh", "requester", "bengaluru", "Computer Engineering", "B.Tech Year 3"),
+    ("bengaluru_r2", "Ananya Bose", "requester", "bengaluru", "Product Design", "B.Des Year 2"),
+    ("bengaluru_r3", "Vikram Sethi", "requester", "bengaluru", "Mechatronics", "B.Tech Year 4"),
+    ("bengaluru_r4", "Nisha Pillai", "requester", "bengaluru", "Computer Science", "M.Tech Year 1"),
+    ("chennai_manager", "Arjun Narayanan", "lab_manager", "chennai", "Applied Physics", "Lab Manager"),
+    ("chennai_r1", "Kavya Krishnan", "requester", "chennai", "Electronics", "B.E. Year 2"),
+    ("chennai_r2", "Aditya Ghosh", "requester", "chennai", "Biomedical Engineering", "B.Tech Year 3"),
+    ("chennai_r3", "Sana Qureshi", "requester", "chennai", "Mechanical Engineering", "B.E. Year 4"),
+    ("chennai_r4", "Neel Chatterjee", "requester", "chennai", "Media Technology", "B.Sc. Year 2"),
+    ("pune_manager", "Pooja Bhat", "lab_manager", "pune", "Prototyping", "Lab Manager"),
+    ("pune_r1", "Siddharth Patil", "requester", "pune", "Mechanical Engineering", "B.E. Year 3"),
+    ("pune_r2", "Rituja Shah", "requester", "pune", "Industrial Design", "B.Des Year 4"),
+    ("pune_r3", "Farhan Shaikh", "requester", "pune", "Electronics", "M.Tech Year 1"),
+    ("pune_r4", "Maya Reddy", "requester", "pune", "Energy Systems", "B.Tech Year 2"),
+    ("mumbai_manager", "Karan Bhandari", "lab_manager", "mumbai", "Media and Fabrication", "Lab Manager"),
+    ("mumbai_r1", "Aditi Venkatesh", "requester", "mumbai", "Electrical Engineering", "B.Tech Year 2"),
+    ("mumbai_r2", "Manav Lal", "requester", "mumbai", "Film and Media", "B.A. Year 3"),
+    ("mumbai_r3", "Zoya Merchant", "requester", "mumbai", "Robotics", "B.Tech Year 4"),
+    ("mumbai_r4", "Pranav Dutta", "requester", "mumbai", "Computer Science", "M.Sc. Year 1"),
+    ("noida_manager", "Simran Kaur", "lab_manager", "noida", "Engineering Systems", "Lab Manager"),
+    ("noida_r1", "Yash Tiwari", "requester", "noida", "Electronics", "B.Tech Year 2"),
+    ("noida_r2", "Diya Mukherjee", "requester", "noida", "Computer Science", "B.Tech Year 3"),
+    ("noida_r3", "Harsh Vardhan", "requester", "noida", "Aerospace Engineering", "B.Tech Year 4"),
+    ("noida_r4", "Nandini Kapoor", "requester", "noida", "Industrial Design", "B.Des Year 2"),
+    ("kolkata_manager", "Sreya Banerjee", "lab_manager", "kolkata", "Electronics", "Lab Manager"),
+    ("kolkata_r1", "Ishan Das", "requester", "kolkata", "Electrical Engineering", "B.Tech Year 2"),
+    ("kolkata_r2", "Mitali Roy", "requester", "kolkata", "Physics", "M.Sc. Year 1"),
+    ("kolkata_r3", "Rahul Sen", "requester", "kolkata", "Mechanical Engineering", "B.E. Year 3"),
+)
+EXTENDED_USER_IDS = {
+    spec[0]: str(uuid5(NAMESPACE, f"user:{spec[0]}")) for spec in EXTENDED_USER_SPECS
 }
 RESOURCE_IDS = {
     "printer": str(uuid5(NAMESPACE, "resource:3d-printer")),
@@ -80,25 +189,56 @@ SEED_OBJECT_IDS.update(
             f"request:history-{index:02d}": str(
                 uuid5(NAMESPACE, f"request:history-{index:02d}")
             )
-            for index in range(1, 24)
+            for index in range(1, 119)
         },
         **{
             f"booking:history-{index:02d}": str(
                 uuid5(NAMESPACE, f"booking:history-{index:02d}")
             )
-            for index in range(1, 24)
+            for index in range(1, 119)
         },
         **{
             f"training:sample-{index:02d}": str(
                 uuid5(NAMESPACE, f"training:sample-{index:02d}")
             )
-            for index in range(1, 7)
+            for index in range(1, 79)
         },
         **{
             f"audit:sample-{index:02d}": str(
                 uuid5(NAMESPACE, f"audit:sample-{index:02d}")
             )
-            for index in range(2, 13)
+            for index in range(2, 61)
+        },
+        **{
+            f"request:pending-extra-{index:02d}": str(
+                uuid5(NAMESPACE, f"request:pending-extra-{index:02d}")
+            )
+            for index in range(1, 8)
+        },
+        **{
+            f"request:waitlisted-extra-{index:02d}": str(
+                uuid5(NAMESPACE, f"request:waitlisted-extra-{index:02d}")
+            )
+            for index in range(2, 4)
+        },
+        **{
+            f"decision:waitlisted-extra-{index:02d}": str(
+                uuid5(NAMESPACE, f"decision:waitlisted-extra-{index:02d}")
+            )
+            for index in range(2, 4)
+        },
+        **{
+            f"incident:sample-{index:02d}": str(
+                uuid5(NAMESPACE, f"incident:sample-{index:02d}")
+            )
+            for index in range(2, 5)
+        },
+        **{
+            f"handover:sample-{index:02d}-{stage.lower()}": str(
+                uuid5(NAMESPACE, f"handover:sample-{index:02d}-{stage.lower()}")
+            )
+            for index in range(2, 5)
+            for stage in ("IN", "OUT")
         },
     }
 )
@@ -113,28 +253,29 @@ DEMO_USERS = (
 )
 
 DEMO_RESOURCES = (
-    ("printer", "3D Printer", "fabrication", ["3d printing", "prototyping"], "Fabrication Bay", "active", None, []),
-    ("camera", "Camera Kit", "media", ["video", "photography"], "Media Store", "active", None, []),
+    ("printer", "3D Printer", "fabrication", ["3d printing", "prototyping"], "Fabrication Bay", "active", None, ["3D_PRINTER_OPERATION_3DP_101"]),
+    ("camera", "Camera Kit", "media", ["video", "photography"], "Media Store", "active", None, ["MEDIA_KIT_CHECKOUT_MKC_101"]),
     ("oscilloscope", "Oscilloscope Training Station", "electronics", ["oscilloscope", "measurement"], "Electronics Lab", "active", None, ["OSCILLOSCOPE_SAFETY"]),
-    ("bench", "Electronics Bench", "electronics", ["soldering", "measurement"], "Electronics Lab", "active", None, []),
-    ("room", "Meeting / Project Room", "space", ["teamwork", "project work"], "Northstar Lab", "active", None, []),
-    ("maintenance", "Maintenance Hold Resource", "equipment", ["maintenance demonstration"], "Service Bay", "maintenance_hold", date.today() - timedelta(days=1), []),
+    ("bench", "Electronics Bench", "electronics", ["soldering", "measurement"], "Electronics Lab", "active", None, ["SOLDERING_SAFETY_SSS_101"]),
+    ("room", "Meeting / Project Room", "space", ["teamwork", "project work"], "Uppal Learning Commons", "active", None, ["PROJECT_ROOM_ACCESS_PRA_100"]),
+    ("maintenance", "Maintenance Hold Resource", "equipment", ["maintenance demonstration"], "Service Bay", "maintenance_hold", date.today() - timedelta(days=1), ["MACHINE_SAFETY_INSPECTION_MSI_101"]),
 )
 DEMO_RESOURCE_DETAILS = {
     "printer": {
         "short_summary": "Sample data — enclosed FDM printer for prototypes and fixtures.",
-        "description": "Sample data. A fictional enclosed fused-deposition printer for approved academic prototypes. Owners provide material guidance and inspect the machine after use.",
+        "description": "Sample data. This fictional enclosed fused-deposition printer supports approved academic prototypes and fixtures. Members use institution-approved filament and record the selected material before a print begins. The lab team checks the nozzle and build plate between sessions.",
         "building": "Northstar Engineering Center",
         "room": "F-104",
-        "address_note": "Use the west entrance and check in at the fabrication desk.",
+        "id_required": "Student ID card or institution letter",
+        "address_note": "Use the west entrance and check in at the fabrication desk. Operating hours are local India Standard Time (IST).",
         "capacity": 1,
         "quantity": None,
         "allowed_uses": ["project", "coursework", "research"],
-        "who_can_use": ["Northstar students", "Northstar staff"],
-        "required_training": [],
+        "who_can_use": ["Northstar students", "Northstar staff", "External startups with an institution letter"],
+        "required_training": ["3D Printer Operation 3DP-101"],
         "supervision_required": False,
         "supervised_windows": [],
-        "usage_rules": ["Use approved filament only", "Remove completed prints before checkout"],
+        "usage_rules": ["Use approved filament only", "Remove completed prints before checkout", "Record the material and print profile before starting", "Keep the enclosure closed during operation"],
         "safety_notes": ["Keep the enclosure closed while printing", "Do not touch the heated bed"],
         "max_session_hours": 4,
         "advance_booking_window": 30,
@@ -144,18 +285,19 @@ DEMO_RESOURCE_DETAILS = {
     },
     "camera": {
         "short_summary": "Sample data — shared camera and audio kit for project documentation.",
-        "description": "Sample data. A fictional camera kit containing a mirrorless body, standard lens, tripod and basic audio accessories for supervised institutional projects.",
+        "description": "Sample data. This fictional camera kit contains a mirrorless body, standard lens, tripod, and basic audio accessories. It is intended for institution projects, coursework, and approved startup documentation. A staff member checks the sealed kit at collection and return.",
         "building": "Northstar Media Annex",
         "room": "M-012",
-        "address_note": "Collect and return the sealed kit at the media checkout counter.",
+        "id_required": "Institution ID card",
+        "address_note": "Collect and return the sealed kit at the media checkout counter. Operating hours are local India Standard Time (IST).",
         "capacity": None,
         "quantity": 2,
         "allowed_uses": ["project", "coursework", "research"],
-        "who_can_use": ["Northstar students", "Northstar staff"],
-        "required_training": [],
+        "who_can_use": ["Northstar students", "Northstar staff", "External startups with an institution letter"],
+        "required_training": ["Media Kit Checkout MKC-101"],
         "supervision_required": False,
         "supervised_windows": [],
-        "usage_rules": ["Return all listed accessories", "Do not leave equipment unattended"],
+        "usage_rules": ["Return all listed accessories", "Do not leave equipment unattended", "Keep the kit inside its protective case while moving", "Report battery or lens faults at checkout"],
         "safety_notes": ["Use the neck strap while handheld", "Keep equipment dry"],
         "max_session_hours": 8,
         "advance_booking_window": 45,
@@ -165,21 +307,22 @@ DEMO_RESOURCE_DETAILS = {
     },
     "oscilloscope": {
         "short_summary": "Sample data — supervised electronics measurement station.",
-        "description": "Sample data. A fictional bench oscilloscope and probe station for low-voltage measurement training and coursework.",
+        "description": "Sample data. This fictional oscilloscope bench supports low-voltage electronics measurement and coursework. Users inspect probes and leads before connecting a circuit. A trained lab supervisor remains present throughout each session.",
         "building": "Northstar Engineering Center",
         "room": "E-208",
-        "address_note": "Ask the electronics lab desk to unlock the instrument cabinet.",
+        "id_required": "Student ID card; staff ID for employees",
+        "address_note": "Ask the electronics lab desk to unlock the instrument cabinet. Operating hours are local India Standard Time (IST).",
         "capacity": 1,
         "quantity": None,
         "allowed_uses": ["project", "coursework", "research"],
-        "who_can_use": ["Trained Northstar students", "Northstar engineering staff"],
-        "required_training": ["Oscilloscope Safety"],
+        "who_can_use": ["Trained Northstar students", "Northstar engineering staff", "External startups with an institution letter"],
+        "required_training": ["Oscilloscope Safety OSC-101"],
         "supervision_required": True,
         "supervised_windows": [
             {"weekday": weekday, "start": "00:00", "end": "23:59"}
             for weekday in range(1, 8)
         ],
-        "usage_rules": ["Use only within rated input limits", "Return probes to the marked drawer"],
+        "usage_rules": ["Use only within rated input limits", "Return probes to the marked drawer", "Complete the OSC-101 induction before connecting a circuit", "Keep the instrument cabinet locked when unattended"],
         "safety_notes": ["Never connect mains voltage", "Inspect probes before each session"],
         "max_session_hours": 3,
         "advance_booking_window": 21,
@@ -189,18 +332,19 @@ DEMO_RESOURCE_DETAILS = {
     },
     "bench": {
         "short_summary": "Sample data — shared electronics bench for low-voltage assembly.",
-        "description": "Sample data. A fictional ESD-protected bench with soldering and measurement tools for approved low-voltage work.",
+        "description": "Sample data. This fictional ESD-protected bench provides soldering and measurement tools for approved low-voltage work. Users operate the fume extractor and return hand tools to the shadow board. Staff inspect the bench after each session.",
         "building": "Northstar Engineering Center",
         "room": "E-204",
-        "address_note": "Use the marked ESD station and return tools to the shadow board.",
+        "id_required": "Student ID card or institution letter",
+        "address_note": "Use the marked ESD station and return tools to the shadow board. Operating hours are local India Standard Time (IST).",
         "capacity": 1,
         "quantity": None,
         "allowed_uses": ["project", "coursework", "research"],
-        "who_can_use": ["Northstar students", "Northstar staff"],
-        "required_training": [],
+        "who_can_use": ["Northstar students", "Northstar staff", "External startups with an institution letter"],
+        "required_training": ["Soldering Safety SSS-101"],
         "supervision_required": False,
         "supervised_windows": [],
-        "usage_rules": ["Use the fume extractor when soldering", "Leave the bench clear"],
+        "usage_rules": ["Use the fume extractor when soldering", "Leave the bench clear", "Complete the SSS-101 induction before using the iron", "Disconnect and cool tools before storage"],
         "safety_notes": ["Wear eye protection", "Do not work on energized circuits"],
         "max_session_hours": 4,
         "advance_booking_window": 30,
@@ -210,18 +354,19 @@ DEMO_RESOURCE_DETAILS = {
     },
     "room": {
         "short_summary": "Sample data — bookable project room for small working groups.",
-        "description": "Sample data. A fictional collaborative room for project meetings, design reviews and coursework planning.",
-        "building": "Northstar Learning Commons",
+        "description": "Sample data. This fictional collaborative room supports project meetings, design reviews, and coursework planning. Teams can use the display and whiteboard for shared work. Users leave the furniture and surfaces ready for the next group.",
+        "building": "Uppal Learning Commons",
         "room": "L-301",
-        "address_note": "Room is on the third floor beside the project studios.",
+        "id_required": "Institution ID card",
+        "address_note": "Room is on the third floor beside the project studios in Uppal. Operating hours are local India Standard Time (IST).",
         "capacity": 8,
         "quantity": None,
         "allowed_uses": ["project", "coursework", "research"],
-        "who_can_use": ["Northstar students", "Northstar staff"],
-        "required_training": [],
+        "who_can_use": ["Uppal institution students", "Uppal institution staff", "External startups with an institution letter"],
+        "required_training": ["Project Room Access PRA-100"],
         "supervision_required": False,
         "supervised_windows": [],
-        "usage_rules": ["Leave the room ready for the next group", "Keep discussions at a considerate volume"],
+        "usage_rules": ["Leave the room ready for the next group", "Keep discussions at a considerate volume", "Complete PRA-100 orientation before first use", "Return the display remote and speaker to the marked shelf"],
         "safety_notes": ["Keep the exit clear", "Report damaged furniture to the desk"],
         "max_session_hours": 4,
         "advance_booking_window": 60,
@@ -231,18 +376,19 @@ DEMO_RESOURCE_DETAILS = {
     },
     "maintenance": {
         "short_summary": "Sample data — equipment temporarily held for a scheduled inspection.",
-        "description": "Sample data. A fictional demonstration resource kept unavailable while a safety inspection is reviewed.",
+        "description": "Sample data. This fictional demonstration resource is unavailable while a safety inspection is reviewed. A service note records the inspection concern and the next review date. The hold remains in place until an authorized manager clears it.",
         "building": "Northstar Engineering Center",
         "room": "S-001",
-        "address_note": "Not available for collection while the hold is active.",
+        "id_required": "Staff ID or institution letter",
+        "address_note": "Not available for collection while the hold is active. Operating hours are local India Standard Time (IST).",
         "capacity": 1,
         "quantity": None,
         "allowed_uses": ["project", "coursework", "research"],
-        "who_can_use": ["Northstar students", "Northstar staff"],
-        "required_training": [],
+        "who_can_use": ["Northstar students", "Northstar staff", "External startups with an institution letter"],
+        "required_training": ["Machine Safety Inspection MSI-101"],
         "supervision_required": False,
         "supervised_windows": [],
-        "usage_rules": ["Do not reserve or operate while on hold"],
+        "usage_rules": ["Do not reserve or operate while on hold", "Contact the lab manager for a status update", "Keep the marked inspection area clear", "Resume use only after an authorized manager clears the hold"],
         "safety_notes": ["Keep clear of the marked inspection area"],
         "max_session_hours": 2,
         "advance_booking_window": 60,
@@ -265,21 +411,60 @@ def seed_database(
             session.execute(select(table).limit(1)).first() is not None
             for table in Base.metadata.sorted_tables
         )
-        if has_existing_data and not force:
-            return
+        if has_existing_data:
+            if not force:
+                return
+            reset_demo_data(session)
 
         password_hash = hash_password(demo_password)
+        session.add_all(
+            Organization(
+                id=organization_id,
+                name=name,
+                type=organization_type,
+                city=city,
+                area=area,
+                is_demo=True,
+            )
+            for _key, organization_id, name, organization_type, city, area in ORGANIZATIONS
+        )
         users = {
             key: User(
                 id=DEMO_USER_IDS[key],
                 display_name=label,
                 role=role,
                 organization_id=ORG_ID,
+                department={
+                    "requester_a": "Mechanical Engineering",
+                    "requester_b": "Electronics",
+                    "requester_c": "Computer Engineering",
+                    "lab_manager": "Fabrication",
+                    "institution_admin": "Institution Administration",
+                    "judge_auditor": "Independent Review",
+                }[key],
+                designation={
+                    "requester_a": "B.Tech Year 3",
+                    "requester_b": "B.Tech Year 2",
+                    "requester_c": "M.Tech Year 1",
+                    "lab_manager": "Lab Manager",
+                    "institution_admin": "Institution Administrator",
+                    "judge_auditor": "Judge Auditor",
+                }[key],
                 is_demo=True,
                 password_hash=password_hash,
             )
             for key, label, role in DEMO_USERS
         }
+        users["uppal_manager"] = User(
+            id=EXTENDED_USER_IDS["uppal_manager"],
+            display_name="Meera Nair",
+            role="lab_manager",
+            organization_id=ORGANIZATION_IDS["uppal"],
+            department="Fabrication",
+            designation="Lab Manager",
+            is_demo=True,
+            password_hash=password_hash,
+        )
         session.add_all(users.values())
         session.flush()
 
@@ -314,11 +499,17 @@ def seed_database(
         for key, name, category, tags, location, status, hold_date, training_codes in DEMO_RESOURCES:
             resource = Resource(
                 id=RESOURCE_IDS[key],
-                owner_id=DEMO_USER_IDS["lab_manager"],
+                owner_id=(
+                    EXTENDED_USER_IDS["uppal_manager"]
+                    if key == "room"
+                    else DEMO_USER_IDS["lab_manager"]
+                ),
                 name=name,
                 category=category,
                 capability_tags=tags,
                 location=location,
+                city="Hyderabad",
+                area="Uppal" if key == "room" else "Gachibowli",
                 status=status,
                 hold_review_date=hold_date,
                 weekly_operating_hours=open_hours,
@@ -326,6 +517,7 @@ def seed_database(
                     DEMO_RESOURCE_DETAILS[key]["max_session_hours"] * 60
                 ),
                 exclusive_booking=True,
+                access_model="free for members; no payments are processed",
                 is_demo=True,
                 **DEMO_RESOURCE_DETAILS[key],
             )
@@ -352,7 +544,7 @@ def seed_database(
                 allowed_uses=["project", "coursework", "research"],
                 priority_policy={},
                 effective_at=now,
-                approved_by=DEMO_USER_IDS["lab_manager"],
+                approved_by=resource.owner_id,
                 activation_reason="Initial DEMO seed policy activation.",
                 is_demo=True,
             )
@@ -749,7 +941,615 @@ def seed_database(
                 is_demo=True,
             )
         )
+        session.flush()
+        _seed_extended_demo_data(
+            session,
+            now,
+            resources,
+            policies,
+            users,
+            password_hash,
+        )
         session.commit()
+
+
+def _seed_extended_demo_data(
+    session: Session,
+    now: datetime,
+    resources: dict[str, Resource],
+    policies: dict[str, ResourcePolicy],
+    users: dict[str, User],
+    password_hash: str,
+) -> None:
+    organization_rows = {row[0]: row for row in ORGANIZATIONS}
+    manager_keys = {"northstar": "lab_manager"}
+    requester_keys: dict[str, list[str]] = {
+        "northstar": ["requester_a", "requester_b", "requester_c"]
+    }
+    extended_users: dict[str, User] = {}
+    for key, name, role, organization_key, department, designation in EXTENDED_USER_SPECS:
+        user = users.get(key) or User(
+            id=EXTENDED_USER_IDS[key],
+            display_name=name,
+            role=role,
+            organization_id=ORGANIZATION_IDS[organization_key],
+            department=department,
+            designation=designation,
+            is_demo=True,
+            password_hash=password_hash,
+        )
+        extended_users[key] = user
+        if role == "lab_manager":
+            manager_keys[organization_key] = key
+        else:
+            requester_keys.setdefault(organization_key, []).append(key)
+    session.add_all(extended_users.values())
+    session.flush()
+
+    course_by_key = {
+        "laser": "Laser Safety Induction LSI-101",
+        "laser_noida": "Laser Marking Safety LMI-102",
+        "cnc": "CNC Router Operation CRO-201",
+        "rework": "Soldering and Rework Safety SRS-110",
+        "gpu": "GPU Cluster Access GCA-101",
+        "pcb": "PCB Prototyping Safety PPS-120",
+        "pcb_kolkata": "PCB Prototyping Safety PPS-120",
+        "vr": "VR Studio Orientation VSO-105",
+        "microscope": "Fluorescence Microscope Handling FMH-101",
+        "utm": "Universal Testing Machine Safety UTM-101",
+        "solar": "Solar Bench Electrical Safety SBES-102",
+        "scanner": "3D Scanner Orientation 3DS-101",
+        "wind": "Wind Tunnel Tabletop Safety WTS-108",
+        "wind_kolkata": "Wind Tunnel Demonstration Safety WTD-101",
+        "library": "Electronics Component Library Induction ECLI-100",
+        "podcast": "Podcast Studio Orientation PSO-103",
+        "seminar": "Seminar Hall Equipment Induction SHE-100",
+        "drone": "Drone Cage Safety DCS-101",
+        "scope": "Oscilloscope Safety OSC-101",
+        "printer_farm": "3D Printer Farm Operation 3DP-101",
+        "project_room": "Project Room Access PRA-100",
+    }
+    id_required_by_key = {
+        "laser": "Student ID card and institution letter for external startups",
+        "cnc": "Student ID card or staff ID",
+        "rework": "Student ID card; staff ID for employees",
+        "gpu": "Institution ID card or approved startup institution letter",
+        "pcb": "Student ID card or staff ID",
+        "vr": "Institution ID card",
+        "microscope": "Student ID card and verified training record",
+        "utm": "Staff ID or student ID with supervisor approval",
+        "solar": "Student ID card or institution letter",
+        "scanner": "Institution ID card",
+        "wind": "Student ID card",
+        "library": "Student ID card or staff ID",
+        "podcast": "Institution ID card or startup institution letter",
+        "seminar": "Staff ID or institution event letter",
+        "drone": "Student ID card and drone cage induction record",
+        "laser_noida": "Student ID card or approved institution letter",
+        "project_room": "Institution ID card",
+        "scope": "Student ID card and OSC-101 training record",
+        "pcb_kolkata": "Student ID card or staff ID",
+        "printer_farm": "Institution ID card and 3DP-101 training record",
+        "wind_kolkata": "Student ID card or staff ID",
+    }
+    resource_specs = (
+        ("uppal", "laser", "CO2 Laser Cutter", "laser cutting", ["laser", "sheet cutting"], "Uppal Fabrication Block", "F-12", "Cuts approved sheet stock for fixtures and enclosure panels.", "active", None, None),
+        ("uppal", "cnc", "CNC Router", "cnc machining", ["cnc", "wood", "plastic"], "Uppal Fabrication Block", "F-14", "Machines wood and approved plastics into flat prototype components.", "active", None, None),
+        ("uppal", "rework", "Soldering and Rework Station", "electronics", ["soldering", "rework"], "Uppal Electronics Wing", "E-03", "Supports through-hole assembly, hot-air rework, and low-voltage prototype repair.", "active", None, None),
+        ("bengaluru", "gpu", "GPU Workstation", "compute", ["gpu", "machine learning", "rendering"], "Vertex Computing Studio", "C-08", "Provides reserved GPU time for student projects, simulations, and approved startup prototypes.", "active", None, None),
+        ("bengaluru", "pcb", "PCB Prototyping Station", "electronics", ["pcb", "prototyping"], "Vertex Electronics Lab", "E-21", "Supports small-batch board milling, drilling, and inspection for low-voltage circuits.", "active", None, None),
+        ("bengaluru", "vr", "VR and AR Studio", "immersive media", ["vr", "ar", "spatial design"], "Vertex Media Studio", "M-05", "Provides a tracked room and headsets for interactive learning and product visualization.", "active", None, None),
+        ("chennai", "microscope", "Fluorescence Microscope", "microscopy", ["fluorescence", "imaging"], "Bluefern Life Sciences Block", "L-11", "Supports supervised fluorescence imaging of prepared samples for teaching and research.", "maintenance_hold", "The illumination module is awaiting a replacement filter.", date.today() + timedelta(days=10)),
+        ("chennai", "utm", "Mechanical Testing Machine (UTM)", "mechanical testing", ["utm", "materials"], "Bluefern Materials Lab", "M-07", "Measures tensile and compression behavior of approved material coupons.", "active", None, None),
+        ("chennai", "solar", "Solar Test Bench", "energy", ["solar", "photovoltaics"], "Bluefern Energy Terrace", "S-02", "Compares small photovoltaic modules under a calibrated indoor lamp and outdoor reference readings.", "active", None, None),
+        ("pune", "scanner", "3D Scanner", "3d scanning", ["3d scan", "reverse engineering"], "Copperleaf Design Hall", "D-16", "Captures non-sensitive object geometry for inspection and digital fabrication workflows.", "active", None, None),
+        ("pune", "wind", "Wind-Tunnel Tabletop Unit", "fluid dynamics", ["wind tunnel", "aerodynamics"], "Copperleaf Applied Mechanics Lab", "A-04", "Demonstrates airflow behavior around small models with a guarded tabletop tunnel.", "active", None, None),
+        ("pune", "library", "Electronics Component Library", "electronics library", ["components", "inventory"], "Copperleaf Electronics Library", "E-02", "Provides supervised checkout of labeled passive, analog, and microcontroller components.", "active", None, None),
+        ("mumbai", "podcast", "Podcast and Video Studio", "media production", ["podcast", "video", "audio"], "Lanternfish Media Wing", "V-09", "Provides an acoustically treated room for interviews, demonstrations, and project videos.", "active", None, None),
+        ("mumbai", "seminar", "Seminar Hall", "learning space", ["seminar", "presentation"], "Lanternfish Commons", "H-01", "Hosts project reviews, workshops, and small public-interest technology sessions.", "active", None, None),
+        ("mumbai", "drone", "Drone Flight Cage", "aerial robotics", ["drone", "robotics"], "Lanternfish Robotics Annex", "R-03", "Provides an enclosed netted area for low-speed indoor flight testing and control practice.", "maintenance_hold", "A net panel needs inspection after a routine facilities check.", date.today() + timedelta(days=21)),
+        ("noida", "laser_noida", "Fiber Laser Marking Unit", "laser cutting", ["laser", "marking", "engraving"], "Copperkite Fabrication Wing", "F-06", "Marks approved metal and polymer coupons for traceable engineering prototypes.", "active", None, None),
+        ("noida", "project_room", "Project Room", "learning space", ["teamwork", "project"], "Copperkite Commons", "P-10", "Provides a reservable room for design reviews, team planning, and collaborative coursework.", "active", None, None),
+        ("noida", "scope", "Oscilloscope and Spectrum Analyser Bench", "electrical testing", ["oscilloscope", "spectrum analyser"], "Copperkite Instrument Lab", "I-12", "Supports supervised signal measurement and low-voltage RF characterization.", "active", None, None),
+        ("kolkata", "pcb_kolkata", "PCB Prototyping Station", "electronics", ["pcb", "prototyping"], "Monsoon Electronics Block", "E-15", "Supports single-sided board preparation, drilling, and visual inspection for coursework.", "active", None, None),
+        ("kolkata", "printer_farm", "3D Printer Farm", "fabrication", ["3d printing", "prototyping"], "Monsoon Fabrication Studio", "F-08", "Provides a small supervised bank of enclosed FDM printers for fixtures and demonstrator parts.", "active", None, None),
+        ("kolkata", "wind_kolkata", "Wind-Tunnel Demonstration Table", "fluid dynamics", ["wind tunnel", "demonstration"], "Monsoon Applied Science Lab", "A-02", "Demonstrates airflow and drag using small models and a guarded tabletop fan unit.", "active", None, None),
+    )
+    training_code_by_key: dict[str, str] = {}
+    organization_key_by_id = {
+        organization_id: key for key, organization_id in ORGANIZATION_IDS.items()
+    }
+    resource_organizations = {
+        key: organization_key_by_id[resource.owner.organization_id]
+        for key, resource in resources.items()
+    }
+    extra_resource_rows: list[Resource] = []
+    extra_policy_rows: list[ResourcePolicy] = []
+    supervised_windows = [
+        {"weekday": weekday, "start": "09:00", "end": "17:00"}
+        for weekday in range(1, 7)
+    ]
+    operating_hours = [
+        {"weekday": weekday, "start": "09:00", "end": "18:00"}
+        for weekday in range(1, 7)
+    ]
+    access_models = (
+        "free for members; no payments are processed",
+        "sponsored access; no payments are processed",
+        "credit-based access display only; no payments are processed",
+    )
+    for index, spec in enumerate(resource_specs):
+        (
+            organization_key,
+            key,
+            name,
+            category,
+            tags,
+            building,
+            room,
+            purpose,
+            status,
+            hold_reason,
+            hold_review_date,
+        ) = spec
+        _org_key, org_id, org_name, _org_type, city, area = organization_rows[organization_key]
+        manager_key = manager_keys[organization_key]
+        course = course_by_key[key]
+        code = re.sub(r"[^A-Z0-9]+", "_", course.upper()).strip("_")[:100]
+        training_code_by_key[key] = code
+        supervised = key not in {"gpu", "vr", "library", "podcast", "seminar", "project_room"}
+        resource_id = str(uuid5(NAMESPACE, f"resource:{key}"))
+        owner_id = (
+            DEMO_USER_IDS[manager_key]
+            if manager_key in DEMO_USER_IDS
+            else EXTENDED_USER_IDS[manager_key]
+        )
+        description = (
+            f"This fictional {name.lower()} supports {purpose.lower()} "
+            f"at {org_name.replace(' (Sample)', '')}. "
+            "Users follow the posted operating procedure and record any setup changes before the session. "
+            "Institution staff inspect the equipment and shared accessories between bookings."
+        )
+        detail = Resource(
+            id=resource_id,
+            owner_id=owner_id,
+            name=name,
+            category=category,
+            short_summary=f"Sample data — {purpose}",
+            description=description,
+            capability_tags=tags,
+            location=f"{building}, Room {room}",
+            city=city,
+            area=area,
+            id_required=id_required_by_key[key],
+            building=building,
+            room=room,
+            address_note=(
+                f"{area}, {city}; check in at the {building} reception desk. "
+                "Operating hours are local India Standard Time (IST)."
+            ),
+            status=status,
+            hold_reason=hold_reason,
+            hold_review_date=hold_review_date,
+            weekly_operating_hours=operating_hours,
+            capacity=1,
+            quantity=None,
+            allowed_uses=["project", "coursework", "research"],
+            who_can_use=[
+                f"{org_name} students",
+                f"{org_name} staff",
+                "External startups with an institution letter",
+            ],
+            required_training=[course],
+            supervision_required=supervised,
+            supervised_windows=supervised_windows if supervised else [],
+            usage_rules=[
+                "Use the equipment only for the approved booking purpose.",
+                "Complete the named induction before operating the equipment.",
+                "Keep the work area clear and return shared accessories after use.",
+                "Record faults or incomplete kits with the lab manager before checkout.",
+            ],
+            safety_notes=[
+                "Follow posted isolation, guarding, and personal protective equipment instructions.",
+                "Stop work and notify the lab manager if a safety control or instrument behaves unexpectedly.",
+                "Do not bypass interlocks or use equipment outside its stated rating.",
+            ],
+            max_session_hours=4,
+            advance_booking_window=30,
+            cancellation_cutoff=2,
+            accessories_included=["Operating guide", "Standard fixture set", "Checkout checklist"],
+            condition_notes=(
+                "Sample data. Routine inspection is recorded; report any change in condition at check-in."
+                if status == "active"
+                else f"Sample data. {hold_reason} Review date: {hold_review_date.isoformat()}."
+            ),
+            max_duration_minutes=240,
+            exclusive_booking=True,
+            access_model=access_models[index % len(access_models)],
+            is_demo=True,
+        )
+        extra_resource_rows.append(detail)
+        resource_organizations[key] = organization_key
+        policy_id = str(uuid5(NAMESPACE, f"policy:{key}"))
+        policy = ResourcePolicy(
+            id=policy_id,
+            resource_id=resource_id,
+            version=1,
+            structured_requirements={
+                "training_codes": [code],
+                "supervisor_required": supervised,
+                "supervised_windows": supervised_windows if supervised else [],
+            },
+            allowed_uses=["project", "coursework", "research"],
+            priority_policy={},
+            effective_at=now,
+            approved_by=detail.owner_id,
+            activation_reason="Initial fictional sample policy activation.",
+            is_demo=True,
+        )
+        extra_policy_rows.append(policy)
+        resources[key] = detail
+        policies[key] = policy
+
+    session.add_all(extra_resource_rows)
+    session.flush()
+    session.add_all(extra_policy_rows)
+    session.flush()
+
+    all_users = {**users, **extended_users}
+    all_requesters = [
+        key
+        for key, person in all_users.items()
+        if person.role == "requester"
+    ]
+    base_training_codes = (
+        "3D_PRINTER_OPERATION_3DP_101",
+        "MEDIA_KIT_CHECKOUT_MKC_101",
+        "SOLDERING_SAFETY_SSS_101",
+        "PROJECT_ROOM_ACCESS_PRA_100",
+    )
+    session.add_all(
+        TrainingRecord(
+            id=SEED_OBJECT_IDS[f"training:sample-{index:02d}"],
+            user_id=all_users[user_key].id,
+            requirement_code=code,
+            status="valid",
+            verified_by=DEMO_USER_IDS["lab_manager"],
+            valid_from=now - timedelta(days=30),
+            valid_to=now + timedelta(days=180),
+            is_demo=True,
+        )
+        for index, (user_key, code) in enumerate(
+            (
+                (requester_key, code)
+                for requester_key in ("requester_a", "requester_b", "requester_c")
+                for code in base_training_codes
+            ),
+            start=7,
+        )
+    )
+    all_training_codes = list(dict.fromkeys((*base_training_codes, *training_code_by_key.values())))
+    training_statuses = ("valid", "valid", "expired", "revoked")
+    extra_training = []
+    for index in range(19, 79):
+        user_key = all_requesters[(index - 19) % len(all_requesters)]
+        organization_key = next(
+            key for key in ORGANIZATION_IDS
+            if ORGANIZATION_IDS[key] == all_users[user_key].organization_id
+        )
+        verified_by_key = manager_keys[organization_key]
+        verified_by = (
+            DEMO_USER_IDS[verified_by_key]
+            if verified_by_key in DEMO_USER_IDS
+            else EXTENDED_USER_IDS[verified_by_key]
+        )
+        status = training_statuses[(index - 19) % len(training_statuses)]
+        if status == "expired":
+            valid_to = now - timedelta(days=1 + index % 20)
+        elif status == "revoked":
+            valid_to = None
+        elif organization_key == "northstar":
+            valid_to = now + timedelta(days=180)
+        elif index % 5 == 0:
+            valid_to = now + timedelta(days=1 + index % 25)
+        else:
+            valid_to = now + timedelta(days=180)
+        extra_training.append(
+            TrainingRecord(
+                id=SEED_OBJECT_IDS[f"training:sample-{index:02d}"],
+                user_id=all_users[user_key].id,
+                requirement_code=all_training_codes[(index - 19) % len(all_training_codes)],
+                status=status,
+                verified_by=verified_by,
+                valid_from=now - timedelta(days=90),
+                valid_to=valid_to,
+                is_demo=True,
+            )
+        )
+    session.add_all(extra_training)
+    session.flush()
+
+    resource_keys = list(resources)
+    history_rows: list[tuple[int, ResourceRequest, Booking, str, datetime, datetime]] = []
+    incident_categories = {24: "missing_part", 25: "malfunction", 26: "late_return"}
+    incident_resources = {24: "microscope", 25: "utm", 26: "drone"}
+
+    def history_resource_key(index: int) -> str:
+        return incident_resources.get(
+            index, resource_keys[(index - 24) % len(resource_keys)]
+        )
+
+    for index in range(24, 119):
+        resource_key = history_resource_key(index)
+        organization_key = resource_organizations.get(resource_key, "northstar")
+        organization_requesters = requester_keys[organization_key]
+        requester_key = organization_requesters[
+            (index - 24) % len(organization_requesters)
+        ]
+        days_ago = ((index - 24) % 29) + 1
+        local_now = now.astimezone(ZoneInfo("Asia/Kolkata"))
+        local_start = (local_now - timedelta(days=days_ago)).replace(
+            hour=9 + (index % 8),
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        start = local_start.astimezone(timezone.utc)
+        end = start + timedelta(hours=1)
+        if index in incident_categories:
+            booking_status = "INCIDENT_REVIEW"
+        elif index % 5 == 0:
+            booking_status = "CANCELLED"
+        elif index % 6 == 0:
+            booking_status = "NO_SHOW"
+        else:
+            booking_status = "CLOSED"
+        request_status = {
+            "CLOSED": "CLOSED",
+            "CANCELLED": "CANCELLED",
+            "NO_SHOW": "APPROVED",
+            "INCIDENT_REVIEW": "INCIDENT_REVIEW",
+        }[booking_status]
+        request_id = SEED_OBJECT_IDS[f"request:history-{index:02d}"]
+        row = ResourceRequest(
+            id=request_id,
+            requester_id=all_users[requester_key].id,
+            resource_id=resources[resource_key].id,
+            purpose="coursework",
+            start_at=start,
+            end_at=end,
+            status=request_status,
+            created_at=start - timedelta(days=4),
+            idempotency_key=None,
+            is_demo=True,
+        )
+        session.add(row)
+        history_rows.append((index, row, None, booking_status, start, end))
+    session.flush()
+    finalized_history: list[tuple[int, ResourceRequest, Booking, str, datetime, datetime]] = []
+    for index, request_row, _booking, booking_status, start, end in history_rows:
+        resource_key = history_resource_key(index)
+        organization_key = resource_organizations.get(resource_key, "northstar")
+        manager_key = manager_keys[organization_key]
+        manager_id = (
+            DEMO_USER_IDS[manager_key]
+            if manager_key in DEMO_USER_IDS
+            else EXTENDED_USER_IDS[manager_key]
+        )
+        booking = Booking(
+            id=SEED_OBJECT_IDS[f"booking:history-{index:02d}"],
+            request_id=request_row.id,
+            start_at=start,
+            end_at=end,
+            status=booking_status,
+            approved_by=manager_id,
+            version=1,
+            is_demo=True,
+        )
+        session.add(booking)
+        finalized_history.append(
+            (index, request_row, booking, booking_status, start, end)
+        )
+    session.flush()
+
+    good_condition = {
+        "physical_condition": "ok",
+        "accessories_complete": "yes",
+        "functional_test": "works",
+        "notes": None,
+    }
+    for index, request_row, booking, _status, start, end in finalized_history:
+        category = incident_categories.get(index)
+        if category is None:
+            continue
+        details = {
+            "missing_part": (
+                "A listed adapter was absent at return; the checkout list is under review.",
+                {"physical_condition": "ok", "accessories_complete": "no", "functional_test": "works", "notes": "Synthetic missing-part report for review."},
+            ),
+            "malfunction": (
+                "The instrument reported an intermittent fault during the final check.",
+                {"physical_condition": "ok", "accessories_complete": "yes", "functional_test": "issue", "notes": "Synthetic malfunction report for review."},
+            ),
+            "late_return": (
+                "The kit was returned after the reserved end time; no blame is assigned.",
+                {"physical_condition": "ok", "accessories_complete": "yes", "functional_test": "works", "notes": "Synthetic late-return report for review."},
+            ),
+        }[category]
+        for stage, condition, created_at in (
+            ("IN", good_condition, start),
+            (
+                "OUT",
+                details[1],
+                end + timedelta(minutes=20) if category == "late_return" else end,
+            ),
+        ):
+            session.add(
+                HandoverReport(
+                    id=SEED_OBJECT_IDS[f"handover:sample-{index - 22:02d}-{stage.lower()}"],
+                    booking_id=booking.id,
+                    stage=stage,
+                    checklist_version="northstar-condition-v1",
+                    condition=condition,
+                    notes=condition.get("notes"),
+                    evidence_references=[],
+                    actor_id=request_row.requester_id,
+                    created_at=created_at,
+                    idempotency_key=None,
+                    is_demo=True,
+                )
+            )
+        session.add(
+            Incident(
+                id=SEED_OBJECT_IDS[f"incident:sample-{index - 22:02d}"],
+                booking_id=booking.id,
+                reporter_id=request_row.requester_id,
+                category=category,
+                description=details[0],
+                status="UNDER_REVIEW",
+                responses=[],
+                resolution=None,
+                reviewer_id=None,
+                created_at=end + (timedelta(minutes=20) if category == "late_return" else timedelta(0)),
+                updated_at=end + (timedelta(minutes=20) if category == "late_return" else timedelta(0)),
+                is_demo=True,
+            )
+        )
+
+    pending_resource_keys = [
+        "laser", "gpu", "cnc", "pcb", "solar", "scanner", "scope"
+    ]
+    for index, resource_key in enumerate(pending_resource_keys, start=1):
+        organization_key = resource_organizations[resource_key]
+        requester_key = requester_keys[organization_key][index % len(requester_keys[organization_key])]
+        start = now + timedelta(days=5 + index, hours=2)
+        resource = resources[resource_key]
+        session.add(
+            ResourceRequest(
+                id=SEED_OBJECT_IDS[f"request:pending-extra-{index:02d}"],
+                requester_id=all_users[requester_key].id,
+                resource_id=resource.id,
+                purpose="research",
+                start_at=start,
+                end_at=start + timedelta(hours=1),
+                status="PENDING_REVIEW",
+                created_at=now - timedelta(hours=index),
+                idempotency_key=None,
+                is_demo=True,
+            )
+        )
+
+    for index, requester_key, organization_key, resource_key in (
+        (2, "bengaluru_r1", "bengaluru", "gpu"),
+        (3, "uppal_r2", "uppal", "laser"),
+    ):
+        start = now + timedelta(days=8, hours=3)
+        request_row = ResourceRequest(
+            id=SEED_OBJECT_IDS[f"request:waitlisted-extra-{index:02d}"],
+            requester_id=all_users[requester_key].id,
+            resource_id=resources[resource_key].id,
+            purpose="project",
+            start_at=start,
+            end_at=start + timedelta(hours=1),
+            status="WAITLISTED",
+            created_at=now - timedelta(minutes=10 * index),
+            idempotency_key=None,
+            is_demo=True,
+        )
+        session.add(request_row)
+        manager_key = manager_keys[organization_key]
+        manager_id = (
+            DEMO_USER_IDS[manager_key]
+            if manager_key in DEMO_USER_IDS
+            else EXTENDED_USER_IDS[manager_key]
+        )
+        session.add(
+            AllocationDecision(
+                id=SEED_OBJECT_IDS[f"decision:waitlisted-extra-{index:02d}"],
+                request_id=request_row.id,
+                decision_sequence=1,
+                policy_version=policies[resource_key].id,
+                outcome="waitlisted",
+                explanation_code="capacity_waitlist",
+                explanation=(
+                    "DEMO DATA — this high-demand slot is full; the request is "
+                    "waitlisted pending cancellation or manager review."
+                ),
+                inputs_snapshot={
+                    "demo_data": True,
+                    "resource_name": resources[resource_key].name,
+                    "algorithm_version": "1",
+                },
+                reviewer_override=None,
+                reviewer_id=manager_id,
+                created_at=now - timedelta(minutes=10 * index),
+                is_demo=True,
+            )
+        )
+
+    session.flush()
+    held_rows = [
+        row for row in extra_resource_rows if row.status == "maintenance_hold"
+    ]
+    for index, resource in enumerate(held_rows, start=13):
+        manager_id = resource.owner_id
+        session.add(
+            AuditEvent(
+                id=SEED_OBJECT_IDS[f"audit:sample-{index:02d}"],
+                actor_id=manager_id,
+                entity_type="resource",
+                entity_id=resource.id,
+                action="resource.maintenance_hold_set",
+                timestamp=now - timedelta(days=3),
+                request_id=None,
+                correlation_id=None,
+                before_summary={"status": "active"},
+                after_summary={
+                    "status": "maintenance_hold",
+                    "reason": resource.hold_reason,
+                    "review_date": resource.hold_review_date.isoformat(),
+                    "demo_data": True,
+                },
+                previous_hash=None,
+                hash=None,
+                is_demo=True,
+            )
+        )
+    for offset, (index, request_row, booking, status, start, end) in enumerate(
+        finalized_history[:46],
+        start=15,
+    ):
+        resource_key = history_resource_key(index)
+        organization_key = resource_organizations.get(resource_key, "northstar")
+        manager_key = manager_keys[organization_key]
+        manager_id = (
+            DEMO_USER_IDS[manager_key]
+            if manager_key in DEMO_USER_IDS
+            else EXTENDED_USER_IDS[manager_key]
+        )
+        action, entity_type, entity_id = {
+            "CLOSED": ("booking.closed", "booking", booking.id),
+            "CANCELLED": ("request.cancelled", "request", request_row.id),
+            "NO_SHOW": ("booking.no_show", "booking", booking.id),
+            "INCIDENT_REVIEW": ("booking.incident_review_opened", "booking", booking.id),
+        }[status]
+        session.add(
+            AuditEvent(
+                id=SEED_OBJECT_IDS[f"audit:sample-{offset:02d}"],
+                actor_id=manager_id,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                action=action,
+                timestamp=end,
+                request_id=None,
+                correlation_id=None,
+                before_summary={"status": "CONFIRMED"},
+                after_summary={"status": status, "demo_data": True},
+                previous_hash=None,
+                hash=None,
+                is_demo=True,
+            )
+        )
 
 
 def reset_demo_data(session: Session) -> None:
@@ -769,6 +1569,7 @@ def reset_demo_data(session: Session) -> None:
         AuditEvent,
         Resource,
         User,
+        Organization,
     ):
         session.execute(delete(model).where(model.is_demo.is_(True)))
     session.commit()

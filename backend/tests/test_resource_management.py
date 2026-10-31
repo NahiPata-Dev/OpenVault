@@ -8,6 +8,8 @@ from app.models import (
     AccessContract,
     AuditEvent,
     Booking,
+    Incident,
+    Organization,
     Resource,
     ResourcePolicy,
     ResourceRequest,
@@ -29,23 +31,74 @@ def test_seed_has_detailed_resources_and_deterministic_sample_records(client):
                 Booking.start_at >= datetime.now(timezone.utc) - timedelta(days=30),
             )
         )
-        assert historical_bookings == 25
+        assert historical_bookings == 120
         assert session.scalar(
             select(func.count(TrainingRecord.id)).where(TrainingRecord.is_demo.is_(True))
-        ) == 8
+        ) == 80
         assert session.scalar(
             select(func.count(AuditEvent.id)).where(AuditEvent.is_demo.is_(True))
-        ) == 12
-        assert len(resources) == 6
+        ) == 60
+        assert len(resources) == 27
+        assert session.scalar(
+            select(func.count(Organization.id)).where(Organization.is_demo.is_(True))
+        ) == 8
+        organization_resource_counts = session.execute(
+            select(User.organization_id, func.count(Resource.id))
+            .join(Resource, Resource.owner_id == User.id)
+            .where(User.is_demo.is_(True), Resource.is_demo.is_(True))
+            .group_by(User.organization_id)
+        ).all()
+        assert len(organization_resource_counts) == 8
+        assert all(3 <= count <= 5 for _organization_id, count in organization_resource_counts)
+        assert session.scalar(
+            select(func.count(User.id)).where(User.is_demo.is_(True))
+        ) == 40
+        assert session.scalar(
+            select(func.count(ResourceRequest.id)).where(
+                ResourceRequest.is_demo.is_(True),
+                ResourceRequest.status == "PENDING_REVIEW",
+            )
+        ) == 10
+        assert session.scalar(
+            select(func.count(ResourceRequest.id)).where(
+                ResourceRequest.is_demo.is_(True),
+                ResourceRequest.status == "WAITLISTED",
+            )
+        ) == 3
+        assert session.scalar(
+            select(func.count(Incident.id)).where(Incident.is_demo.is_(True))
+        ) == 4
+        assert {
+            category
+            for category in session.scalars(
+                select(Incident.category).where(Incident.is_demo.is_(True))
+            ).all()
+        } == {"damage", "missing_part", "malfunction", "late_return"}
+        holds = session.scalars(
+            select(Resource).where(
+                Resource.is_demo.is_(True),
+                Resource.status == "maintenance_hold",
+            )
+        ).all()
+        assert len(holds) == 3
+        assert all(resource.hold_reason and resource.hold_review_date for resource in holds)
         for resource in resources:
             assert "Sample data" in resource.short_summary
-            assert resource.description
+            assert len(resource.description.split(". ")) >= 3
+            assert resource.city and resource.area
             assert resource.building and resource.room and resource.address_note
             assert resource.weekly_operating_hours
             assert resource.capacity or resource.quantity
             assert resource.allowed_uses
-            assert resource.usage_rules and resource.safety_notes
+            assert 4 <= len(resource.usage_rules) <= 6
+            assert resource.safety_notes
             assert resource.accessories_included and resource.condition_notes
+            assert resource.who_can_use and resource.required_training
+            assert resource.max_session_hours and resource.advance_booking_window is not None
+            assert (
+                resource.access_model
+                and "no payments are processed" in resource.access_model
+            )
 
         competing = session.scalars(
             select(ResourceRequest).where(
@@ -64,6 +117,11 @@ def test_seed_has_detailed_resources_and_deterministic_sample_records(client):
         decision = waitlisted.decisions[0]
         assert decision.outcome == "waitlisted"
         assert decision.explanation
+        waitlisted_rows = session.scalars(
+            select(ResourceRequest).where(ResourceRequest.status == "WAITLISTED")
+        ).all()
+        assert len(waitlisted_rows) == 3
+        assert all(row.decisions[0].explanation for row in waitlisted_rows)
 
 
 def test_resource_timeline_marks_synthetic_sample_events(manager_login):
@@ -163,6 +221,53 @@ def test_manager_cannot_edit_another_managers_resource(manager_login):
         },
     )
     assert response.status_code == 403
+
+
+def test_requesters_can_filter_cross_organization_catalog(client):
+    login(client, "requester_a")
+    response = client.get(
+        "/api/resources",
+        params={
+            "city": "Bengaluru",
+            "area": "Electronic City",
+            "organization": "Bengaluru Vertex Workshop",
+            "category": "compute",
+            "query": "GPU",
+        },
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["total"] == 1
+    resource = result["items"][0]
+    assert resource["name"] == "GPU Workstation"
+    assert resource["organization_name"] == (
+        "Bengaluru Vertex Workshop Collective (Sample)"
+    )
+    assert resource["city"] == "Bengaluru"
+    assert resource["area"] == "Electronic City"
+
+    organization_only = client.get(
+        "/api/resources",
+        params={"organization": "Kolkata Monsoon Circuit Works"},
+    )
+    assert organization_only.status_code == 200, organization_only.text
+    assert organization_only.json()["total"] == 3
+
+
+def test_manager_cannot_edit_another_organizations_resource(manager_login):
+    with manager_login.app.state.session_factory() as session:
+        resource = session.scalar(
+            select(Resource).where(Resource.city == "Bengaluru")
+        )
+        resource_id = resource.id
+    response = manager_login.patch(
+        f"/api/resources/{resource_id}",
+        json={
+            "name": "Unauthorized cross-organization edit",
+            "policy_change_reason": "Test organization scope enforcement.",
+        },
+    )
+    assert response.status_code == 404
 
 
 def test_resource_checklist_reports_duration_and_advance_window(client):

@@ -247,7 +247,7 @@ def test_demo_reset_reseeds_only_demo_rows_and_is_admin_only(client):
         resources = session.scalars(
             select(Resource).where(Resource.is_demo.is_(True))
         ).all()
-        assert len(resources) == 6
+        assert len(resources) == 27
 
 
 def test_demo_reset_disabled_outside_restricted_environment(manager_login):

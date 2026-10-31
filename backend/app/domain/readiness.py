@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -152,16 +152,37 @@ def _as_utc(value: datetime) -> datetime:
 
 
 def _is_covered(windows: list[dict], start: datetime, end: datetime) -> bool:
-    if start.date() != end.date():
+    if end <= start:
         return False
-    start_minute = start.hour * 60 + start.minute
-    end_minute = end.hour * 60 + end.minute
-    return any(
-        window.get("weekday") == start.isoweekday()
-        and _minute(window.get("start")) <= start_minute
-        and _minute(window.get("end")) >= end_minute
-        for window in windows
-    )
+    cursor = start
+    while cursor < end:
+        next_day = datetime.combine(
+            cursor.date() + timedelta(days=1),
+            time.min,
+            tzinfo=cursor.tzinfo,
+        )
+        segment_end = min(end, next_day)
+        start_minute = cursor.hour * 60 + cursor.minute
+        end_minute = (
+            24 * 60
+            if segment_end == next_day
+            else segment_end.hour * 60 + segment_end.minute
+        )
+        if not any(
+            window.get("weekday") == cursor.isoweekday()
+            and _minute(window.get("start")) <= start_minute
+            and _window_end_minute(window.get("end")) >= end_minute
+            for window in windows
+        ):
+            return False
+        cursor = segment_end
+    return True
+
+
+def _window_end_minute(value: str | None) -> int:
+    if value == "23:59":
+        return 24 * 60
+    return _minute(value)
 
 
 def _minute(value: str | None) -> int:

@@ -20,6 +20,17 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
+class Organization(Base):
+    __tablename__ = "organizations"
+
+    id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    type: Mapped[str] = mapped_column(String(80), nullable=False)
+    city: Mapped[str] = mapped_column(String(100), nullable=False)
+    area: Mapped[str] = mapped_column(String(120), nullable=False)
+    is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
 class User(Base):
     __tablename__ = "users"
     __table_args__ = (
@@ -31,6 +42,8 @@ class User(Base):
     display_name: Mapped[str] = mapped_column(String(120), nullable=False)
     role: Mapped[str] = mapped_column(String(40), nullable=False)
     organization_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    department: Mapped[str | None] = mapped_column(String(120))
+    designation: Mapped[str | None] = mapped_column(String(120))
     is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
 
@@ -137,6 +150,11 @@ class Resource(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     capability_tags: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     location: Mapped[str] = mapped_column(String(160), nullable=False)
+    city: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    area: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    id_required: Mapped[str] = mapped_column(
+        String(160), nullable=False, default="Institution ID card"
+    )
     building: Mapped[str] = mapped_column(String(160), nullable=False, default="")
     room: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     address_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -158,6 +176,11 @@ class Resource(Base):
     cancellation_cutoff: Mapped[float] = mapped_column(Float, nullable=False, default=2)
     accessories_included: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     condition_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    access_model: Mapped[str] = mapped_column(
+        String(160),
+        nullable=False,
+        default="free for members; no payments are processed",
+    )
     max_duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     exclusive_booking: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

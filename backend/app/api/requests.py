@@ -105,6 +105,17 @@ def create_request(
         action="request.ineligible" if target == "INELIGIBLE" else "request.queued_for_review",
         after={"status": target, "blockers": result["blockers"]},
     )
+    if payload.assistant_draft:
+        record_event(
+            session,
+            user,
+            "resource_request",
+            row.id,
+            "request.assistant_draft_confirmed",
+            request_id=request.state.request_id,
+            after={"assistant_draft": True},
+            is_demo=user.is_demo,
+        )
     _commit(session, "The request could not be saved.")
     return _request_submission(row, result)
 
