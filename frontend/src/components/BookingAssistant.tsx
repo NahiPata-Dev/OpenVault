@@ -108,6 +108,14 @@ export function BookingAssistant({ role }: { role: Role }) {
   const canChat = role === "requester" || role === "lab_manager";
 
   useEffect(() => {
+    function openAssistant() {
+      setOpen(true);
+    }
+    window.addEventListener("open-booking-assistant", openAssistant);
+    return () => window.removeEventListener("open-booking-assistant", openAssistant);
+  }, []);
+
+  useEffect(() => {
     if (open) inputRef.current?.focus();
   }, [open]);
 
