@@ -1,4 +1,4 @@
-import { Component, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   BrowserRouter,
   Link,
@@ -167,22 +167,57 @@ function AppHeader({ user }: { user: User }) {
   const { signOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const moreMenuRef = useRef<HTMLDetailsElement>(null);
   const [logoutError, setLogoutError] = useState<unknown>(null);
-  const navItems = [
-    { path: "/resources", label: "Resources", show: true },
-    { path: "/requests", label: "My requests", show: user.role === "requester" },
-    { path: "/bookings", label: "My bookings", show: user.role === "requester" },
-    { path: "/manager/requests", label: "Requests", show: user.role === "lab_manager" },
-    { path: "/manager/resources", label: "Manage resources", show: user.role === "lab_manager" },
-    { path: "/manager/sessions", label: "Sessions", show: user.role === "lab_manager" },
-    { path: "/manager/training", label: "Training", show: user.role === "lab_manager" },
-    { path: "/manager/incidents", label: "Incidents", show: user.role === "lab_manager" },
-    { path: "/audit", label: "Audit", show: true },
-    { path: "/admin/owner-applications", label: "Owner applications", show: user.role === "institution_admin" },
-    { path: "/admin/users", label: "Users", show: user.role === "institution_admin" },
-    { path: "/admin/audit", label: "Audit explorer", show: user.role === "institution_admin" },
-    { path: "/admin", label: "Demo reset", show: user.role === "institution_admin" },
-  ].filter((item) => item.show);
+  const navigationByRole: Record<Role, { primary: { path: string; label: string }[]; more: { path: string; label: string }[] }> = {
+    requester: {
+      primary: [
+        { path: "/dashboard", label: "Home" },
+        { path: "/resources", label: "Find a resource" },
+        { path: "/bookings", label: "My bookings" },
+        { path: "/requests", label: "My requests" },
+      ],
+      more: [{ path: "/audit", label: "Audit timeline" }],
+    },
+    lab_manager: {
+      primary: [
+        { path: "/dashboard", label: "Home" },
+        { path: "/manager/requests", label: "Review requests" },
+        { path: "/manager/resources", label: "My resources" },
+        { path: "/manager/sessions", label: "Today's sessions" },
+      ],
+      more: [
+        { path: "/manager/training", label: "Training sign-off" },
+        { path: "/manager/incidents", label: "Incidents" },
+        { path: "/resources", label: "Browse catalog" },
+        { path: "/audit", label: "Audit timeline" },
+      ],
+    },
+    institution_admin: {
+      primary: [
+        { path: "/dashboard", label: "Home" },
+        { path: "/admin/owner-applications", label: "Owner applications" },
+        { path: "/admin/users", label: "Users" },
+        { path: "/admin/audit", label: "Audit" },
+      ],
+      more: [
+        { path: "/admin", label: "Demo data reset" },
+        { path: "/audit", label: "Resource audit timeline" },
+        { path: "/resources", label: "Browse catalog" },
+      ],
+    },
+    auditor: {
+      primary: [
+        { path: "/dashboard", label: "Home" },
+        { path: "/resources", label: "Resources" },
+        { path: "/audit", label: "Audit" },
+      ],
+      more: [{ path: "/profile", label: "Profile and settings" }],
+    },
+  };
+  const { primary, more } = navigationByRole[user.role];
+  const linkClassName = ({ isActive }: { isActive: boolean }) =>
+    `app-nav-link ${isActive ? "active" : ""}`;
 
   async function logout() {
     setLogoutError(null);
@@ -194,7 +229,10 @@ function AppHeader({ user }: { user: User }) {
     }
   }
 
-  useEffect(() => { setMenuOpen(false); }, [location.pathname]);
+  useEffect(() => {
+    setMenuOpen(false);
+    if (moreMenuRef.current) moreMenuRef.current.open = false;
+  }, [location.pathname]);
 
   return (
     <>
@@ -204,11 +242,23 @@ function AppHeader({ user }: { user: User }) {
           <span aria-hidden="true">{menuOpen ? "×" : "☰"}</span><span className="sr-only">{menuOpen ? "Close menu" : "Open menu"}</span>
         </button>
         <nav className={`app-nav ${menuOpen ? "app-nav-open" : ""}`} id="primary-navigation" aria-label="Main navigation">
-          {navItems.map((item) => (
-            <NavLink key={item.path} to={item.path} end={item.path === "/resources"} className={({ isActive }) => `app-nav-link ${isActive ? "active" : ""}`}>
+          {primary.map((item) => (
+            <NavLink key={item.path} to={item.path} end={item.path === "/resources" || item.path === "/dashboard"} className={linkClassName}>
               {item.label}
             </NavLink>
           ))}
+          {more.length > 0 && (
+            <details className="more-menu" ref={moreMenuRef}>
+              <summary>More</summary>
+              <div className="more-menu-panel">
+                {more.map((item) => (
+                  <NavLink key={item.path} to={item.path} className={linkClassName}>
+                    {item.label}
+                  </NavLink>
+                ))}
+              </div>
+            </details>
+          )}
         </nav>
         <div className="header-actions">
           <NotificationBell role={user.role} />
@@ -259,31 +309,137 @@ interface DashboardRequestRecord {
   } | null;
 }
 
+interface AdminDashboardState {
+  pendingApplications: number;
+  users: number;
+}
+
+interface DashboardAction {
+  title: string;
+  description: string;
+  path?: string;
+  assistant?: boolean;
+}
+
+const TIP_TOUR_KEY = "openvault.tip-tour.dismissed.v1";
+
+function TipTour({ role }: { role: Role }) {
+  const [step, setStep] = useState(0);
+  const [dismissed, setDismissed] = useState<boolean | null>(null);
+  const dialogRef = useRef<HTMLElement>(null);
+  const tips = [
+    {
+      title: "Start from your home page",
+      text: "Use the three large shortcuts to jump to the task you need most.",
+    },
+    {
+      title: "Your next step is based on your account",
+      text: "The dashboard uses your own requests, bookings, training, or manager queue to suggest what to do next.",
+    },
+    {
+      title: role === "requester" ? "Get help when you need it" : "Find the rest under More",
+      text: role === "requester"
+        ? "The booking assistant can find resources and prepare a request. A person reviews every request."
+        : "Less-used pages stay available in the More menu, so the main navigation stays focused.",
+    },
+  ];
+
+  useEffect(() => {
+    setDismissed(window.localStorage.getItem(TIP_TOUR_KEY) === "true");
+  }, []);
+
+  useEffect(() => {
+    if (dismissed === false) {
+      dialogRef.current?.querySelector<HTMLButtonElement>(".tip-tour-actions button:last-child")?.focus();
+    }
+  }, [dismissed, step]);
+
+  function dismiss() {
+    window.localStorage.setItem(TIP_TOUR_KEY, "true");
+    setDismissed(true);
+  }
+
+  if (dismissed !== false) return null;
+  const tip = tips[step];
+  return (
+    <div className="tip-tour-backdrop">
+      <section
+        className="tip-tour"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="tip-tour-title"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            dismiss();
+            return;
+          }
+          if (event.key !== "Tab") return;
+          const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
+          const first = buttons[0];
+          const last = buttons[buttons.length - 1];
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last?.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first?.focus();
+          }
+        }}
+      >
+        <p className="eyebrow">QUICK TOUR · {step + 1} OF {tips.length}</p>
+        <h2 id="tip-tour-title">{tip.title}</h2>
+        <p>{tip.text}</p>
+        <div className="tip-tour-actions">
+          <button className="button button-quiet" type="button" onClick={dismiss}>Skip tour</button>
+          <button
+            className="button button-primary"
+            type="button"
+            onClick={() => step === tips.length - 1 ? dismiss() : setStep((current) => current + 1)}
+          >
+            {step === tips.length - 1 ? "Finish" : "Next"}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function DashboardPage({ user }: { user: User }) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [requests, setRequests] = useState<DashboardRequestRecord[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [adminData, setAdminData] = useState<AdminDashboardState | null>(null);
+  const [auditorResourceCount, setAuditorResourceCount] = useState<number | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     let active = true;
-    if (user.role !== "lab_manager" && user.role !== "requester") {
-      setLoading(false);
-      return () => { active = false; };
-    }
-    const path = user.role === "lab_manager" ? "/dashboard/manager" : "/dashboard/requester";
+    setLoading(true);
+    setError(null);
     const loads = user.role === "requester"
       ? Promise.all([
-        api.get<DashboardData>(path),
-        api.get<{ items: DashboardRequestRecord[] }>("/requests/mine"),
-        api.get<{ items: NotificationItem[] }>("/notifications"),
-      ]).then(([dashboard, history, notificationList]) => {
-        if (!active) return;
-        setData(dashboard);
-        setRequests(history.items);
-        setNotifications(notificationList.items);
-      })
-      : api.get<DashboardData>(path).then((dashboard) => active && setData(dashboard));
+          api.get<DashboardData>("/dashboard/requester"),
+          api.get<{ items: DashboardRequestRecord[] }>("/requests/mine"),
+          api.get<{ items: NotificationItem[] }>("/notifications"),
+        ]).then(([dashboard, history, notificationList]) => {
+          if (!active) return;
+          setData(dashboard);
+          setRequests(history.items);
+          setNotifications(notificationList.items);
+        })
+      : user.role === "lab_manager"
+        ? api.get<DashboardData>("/dashboard/manager").then((dashboard) => active && setData(dashboard))
+        : user.role === "institution_admin"
+          ? Promise.all([
+              api.get<{ status: string }[]>("/admin/owner-applications"),
+              api.get<unknown[]>("/admin/users"),
+            ]).then(([applications, users]) => active && setAdminData({
+              pendingApplications: applications.filter((application) => application.status === "pending").length,
+              users: users.length,
+            }))
+          : api.get<{ total: number }>("/resources").then((resources) => active && setAuditorResourceCount(resources.total));
     void loads.catch((loadError: unknown) => active && setError(loadError))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
@@ -297,16 +453,147 @@ function DashboardPage({ user }: { user: User }) {
     .sort((a, b) => new Date(a.request.start_at).getTime() - new Date(b.request.start_at).getTime())
     .slice(0, 5);
   const expiringTraining = data?.next_items.filter((item) => item.type === "expiring_training") ?? [];
+  const requesterNext = pendingRequests[0]
+    ? {
+        title: "A request is waiting for review",
+        detail: `${pendingRequests[0].request.status === "WAITLISTED" ? "Waitlisted" : "Pending"} · ${formatIST(pendingRequests[0].request.start_at)}`,
+        path: "/requests",
+        label: "View my requests",
+      }
+    : upcomingBookings[0]?.booking
+      ? {
+          title: "Get ready for your next booking",
+          detail: formatIST(upcomingBookings[0].booking.start_at),
+          path: "/bookings",
+          label: "View my bookings",
+        }
+      : (data?.summary.expiring_training ?? 0) > 0
+        ? {
+            title: "Training expires soon",
+            detail: `${data?.summary.expiring_training} training ${data?.summary.expiring_training === 1 ? "record needs" : "records need"} attention.`,
+            path: "/resources",
+            label: "Find a resource",
+          }
+        : {
+            title: "Find equipment for your next project",
+            detail: "Browse the catalog to compare access rules and requirements.",
+            path: "/resources",
+            label: "Browse resources",
+          };
+  const managerNext = (data?.summary.pending_requests ?? 0) > 0
+    ? {
+        title: "Requests need a decision",
+        detail: `${data?.summary.pending_requests} pending or waitlisted request${data?.summary.pending_requests === 1 ? "" : "s"} in your queue.`,
+        path: "/manager/requests",
+        label: "Review requests",
+      }
+    : (data?.summary.upcoming_bookings ?? 0) > 0
+      ? {
+          title: "Prepare for today's sessions",
+          detail: `${data?.summary.upcoming_bookings} upcoming session${data?.summary.upcoming_bookings === 1 ? "" : "s"} in your schedule.`,
+          path: "/manager/sessions",
+          label: "View sessions",
+        }
+      : (data?.summary.open_incidents ?? 0) > 0
+        ? {
+            title: "An incident needs follow-up",
+            detail: `${data?.summary.open_incidents} open incident${data?.summary.open_incidents === 1 ? "" : "s"} in your resources.`,
+            path: "/manager/incidents",
+            label: "Review incidents",
+          }
+        : {
+            title: "Your queue is clear",
+            detail: "Review your resources and keep their details up to date.",
+            path: "/manager/resources",
+            label: "View my resources",
+          };
+
+  const actionsByRole: Record<Role, DashboardAction[]> = {
+    requester: [
+      { title: "Find a resource", description: "Search equipment and spaces by city, type, or need.", path: "/resources" },
+      { title: "My bookings", description: "See approved sessions and access conditions.", path: "/bookings" },
+      { title: "Ask the assistant", description: "Find options, check requirements, or prepare a request." , assistant: true },
+    ],
+    lab_manager: [
+      { title: "Review requests", description: "Check eligibility and record your decision.", path: "/manager/requests" },
+      { title: "My resources", description: "Update resources and access requirements.", path: "/manager/resources" },
+      { title: "Today's sessions", description: "See upcoming sessions in your organization.", path: "/manager/sessions" },
+    ],
+    institution_admin: [
+      { title: "Owner applications", description: "Review applications for resource-owner access.", path: "/admin/owner-applications" },
+      { title: "Users", description: "Review account roles and status.", path: "/admin/users" },
+      { title: "Audit", description: "Explore recorded events and decisions.", path: "/admin/audit" },
+    ],
+    auditor: [
+      { title: "Browse resources", description: "Inspect resources available in your read-only scope.", path: "/resources" },
+      { title: "Audit timeline", description: "Review resource event history.", path: "/audit" },
+      { title: "Profile", description: "View your account details.", path: "/profile" },
+    ],
+  };
 
   return (
     <div className="page-content">
-      <PageHeading eyebrow="YOUR WORKSPACE" title={`Good to see you, ${user.display_name.split(" ")[0]}`} description={user.role === "lab_manager" ? "Review your resources, incoming requests and follow-up tasks." : "Keep track of upcoming bookings, requests, training and notifications."} />
+      <TipTour role={user.role} />
+      <PageHeading
+        eyebrow={roleLabels[user.role].toUpperCase() + " WORKSPACE"}
+        title={`Good to see you, ${user.display_name.split(" ")[0]}`}
+        description="Choose a task to get started."
+      />
       {error !== null && <ErrorState error={error} />}
-      {user.role === "institution_admin" || user.role === "auditor" ? <Card className="dashboard-up-next">
-        <h2>{user.role === "auditor" ? "Read-only records" : "Administration"}</h2>
-        <p>{user.role === "auditor" ? "This account can inspect scoped audit history and resource records. Management actions are not available." : "Use the administration tools to review owner applications, view users and explore audit events."}</p>
-        <div className="card-actions"><Link className="button button-secondary" to="/audit">Open audit history</Link>{user.role === "institution_admin" && <Link className="button button-primary" to="/admin/owner-applications">Review owner applications</Link>}</div>
-      </Card> : loading ? <div className="skeleton-grid" aria-label="Loading dashboard"><span className="skeleton skeleton-metric" /><span className="skeleton skeleton-metric" /><span className="skeleton skeleton-metric" /><span className="skeleton skeleton-metric" /></div> : data && (
+      <div className="dashboard-action-grid">
+        {actionsByRole[user.role].map((action, index) => action.assistant ? (
+          <button
+            className="dashboard-action-card"
+            type="button"
+            key={action.title}
+            onClick={() => window.dispatchEvent(new Event("open-booking-assistant"))}
+          >
+            <span className="dashboard-action-number">0{index + 1}</span>
+            <span className="dashboard-action-copy"><strong>{action.title}</strong><span>{action.description}</span></span>
+            <span className="dashboard-action-arrow" aria-hidden="true">→</span>
+          </button>
+        ) : (
+          <Link className="dashboard-action-card" to={action.path ?? "/dashboard"} key={action.title}>
+            <span className="dashboard-action-number">0{index + 1}</span>
+            <span className="dashboard-action-copy"><strong>{action.title}</strong><span>{action.description}</span></span>
+            <span className="dashboard-action-arrow" aria-hidden="true">→</span>
+          </Link>
+        ))}
+      </div>
+      {!loading && user.role === "requester" && data && (
+        <section className="what-next-card" aria-labelledby="what-next-title">
+          <div><p className="eyebrow">WHAT TO DO NEXT</p><h2 id="what-next-title">{requesterNext.title}</h2><p>{requesterNext.detail}</p></div>
+          <Link className="button button-primary" to={requesterNext.path}>{requesterNext.label}</Link>
+        </section>
+      )}
+      {!loading && user.role === "lab_manager" && data && (
+        <section className="what-next-card" aria-labelledby="what-next-title">
+          <div><p className="eyebrow">WHAT TO DO NEXT</p><h2 id="what-next-title">{managerNext.title}</h2><p>{managerNext.detail}</p></div>
+          <Link className="button button-primary" to={managerNext.path}>{managerNext.label}</Link>
+        </section>
+      )}
+      {!loading && user.role === "institution_admin" && adminData && (
+        <section className="what-next-card" aria-labelledby="what-next-title">
+          <div>
+            <p className="eyebrow">WHAT TO DO NEXT</p>
+            <h2 id="what-next-title">{adminData.pendingApplications > 0 ? "Owner applications need review" : "No owner applications are waiting"}</h2>
+            <p>{adminData.pendingApplications > 0
+              ? `${adminData.pendingApplications} pending application${adminData.pendingApplications === 1 ? "" : "s"} · ${adminData.users} account${adminData.users === 1 ? "" : "s"} in the directory.`
+              : `${adminData.users} account${adminData.users === 1 ? "" : "s"} in the directory. Review user access or inspect the audit.`}</p>
+          </div>
+          <Link className="button button-primary" to={adminData.pendingApplications > 0 ? "/admin/owner-applications" : "/admin/users"}>
+            {adminData.pendingApplications > 0 ? "Review applications" : "Review users"}
+          </Link>
+        </section>
+      )}
+      {!loading && user.role === "auditor" && auditorResourceCount !== null && (
+        <section className="what-next-card" aria-labelledby="what-next-title">
+          <div><p className="eyebrow">WHAT TO DO NEXT</p><h2 id="what-next-title">{auditorResourceCount > 0 ? "Review the resource audit trail" : "No resources are available to inspect"}</h2><p>{auditorResourceCount} resource{auditorResourceCount === 1 ? "" : "s"} are available in your read-only catalog.</p></div>
+          <Link className="button button-primary" to={auditorResourceCount > 0 ? "/audit" : "/resources"}>{auditorResourceCount > 0 ? "Open audit timeline" : "Browse resources"}</Link>
+        </section>
+      )}
+      {loading && <div className="skeleton-grid dashboard-loading" aria-label="Loading dashboard"><span className="skeleton skeleton-metric" /><span className="skeleton skeleton-metric" /><span className="skeleton skeleton-metric" /></div>}
+      {data && (user.role === "lab_manager" || user.role === "requester") && (
         <>
           <div className="dashboard-metrics">
             {Object.entries(data.summary).map(([key, value]) => (
@@ -346,7 +633,6 @@ function DashboardPage({ user }: { user: User }) {
           )}
         </>
       )}
-      {user.role === "requester" && <div className="dashboard-cta"><Card><p className="eyebrow">RESOURCE CATALOG</p><h2>Looking for something?</h2><p>Browse available equipment and spaces, then review their requirements.</p><Link className="button button-primary" to="/resources">Explore resources <span aria-hidden="true">→</span></Link></Card></div>}
     </div>
   );
 }
