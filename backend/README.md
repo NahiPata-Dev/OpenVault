@@ -34,9 +34,10 @@ demo-reset endpoint and should not be enabled in a production environment.
 
 `DATABASE_URL` defaults to `sqlite:///./openvault.db`. At startup, the app
 creates the schema and seeds the deterministic DEMO records only when the
-database has no users. The seed script follows the same rule and leaves a
-database containing any user unchanged; use the restricted reset endpoint to
-reset only demo rows.
+database has no users. Initial seeding and forced demo reseeding run in one
+transaction, so a failed seed does not leave partial demo data. The seed script
+follows the same empty-database rule and leaves a database containing any user
+unchanged; use the restricted reset endpoint to reset only demo rows.
 
 ### Deploying with Supabase and Vercel
 

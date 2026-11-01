@@ -2,12 +2,24 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+import pytest
 from sqlalchemy import select
 
 from app.database import Base, build_engine, build_session_factory
 from app.main import create_app
-from app.models import AuditEvent, ResourceRequest, User
-from app.seed import DEMO_USER_IDS, RESOURCE_IDS, seed_database
+from app.models import AccountProfile, AuditEvent, Organization, Resource, ResourceRequest, User
+from app.seed import (
+    DEMO_USER_DEPARTMENTS,
+    DEMO_USER_DESIGNATIONS,
+    DEMO_USER_IDS,
+    DEMO_USER_INTENTS,
+    DEMO_USERS,
+    EXTENDED_USER_SPECS,
+    ORG_ID,
+    RESOURCE_IDS,
+    seed_database,
+)
+from app import seed as seed_module
 from tests.conftest import login
 
 
@@ -125,6 +137,16 @@ def test_startup_seeds_empty_database_and_never_reseeds_existing_user(tmp_path, 
         with empty_app.state.session_factory() as session:
             assert session.scalar(select(User.id)) is not None
             assert len(session.scalars(select(User)).all()) == 40
+            profiles = session.scalars(select(AccountProfile)).all()
+            assert {profile.user_id for profile in profiles} == set(
+                DEMO_USER_IDS.values()
+            )
+            assert {
+                profile.user_id: profile.intended_use for profile in profiles
+            } == {
+                DEMO_USER_IDS[key]: intent
+                for key, intent in DEMO_USER_INTENTS.items()
+            }
 
     existing_url = f"sqlite:///{tmp_path / 'existing.sqlite'}"
     engine = build_engine(existing_url)
@@ -151,6 +173,62 @@ def test_startup_seeds_empty_database_and_never_reseeds_existing_user(tmp_path, 
         with existing_app.state.session_factory() as session:
             assert len(session.scalars(select(User)).all()) == 1
             assert session.scalar(select(User.id).where(User.id == DEMO_USER_IDS["requester_a"])) is None
+    engine.dispose()
+
+
+def test_seed_per_user_dictionaries_cover_every_seeded_user():
+    seeded_user_keys = {
+        *(key for key, _label, _role in DEMO_USERS),
+        *(spec[0] for spec in EXTENDED_USER_SPECS),
+    }
+
+    for per_user_dictionary in (
+        DEMO_USER_IDS,
+        DEMO_USER_DEPARTMENTS,
+        DEMO_USER_DESIGNATIONS,
+        DEMO_USER_INTENTS,
+    ):
+        assert set(per_user_dictionary) == seeded_user_keys
+
+
+def test_seed_failure_rolls_back_all_seeded_rows(tmp_path, monkeypatch):
+    database_url = f"sqlite:///{tmp_path / 'failed-seed.sqlite'}"
+    engine = build_engine(database_url)
+    Base.metadata.create_all(engine)
+    factory = build_session_factory(engine)
+
+    def fail_extended_seed(*_args, **_kwargs):
+        raise RuntimeError("simulated seed failure")
+
+    monkeypatch.setattr(seed_module, "_seed_extended_demo_data", fail_extended_seed)
+    with pytest.raises(RuntimeError, match="simulated seed failure"):
+        seed_database(factory, demo_password="test-demo-password")
+
+    with factory() as session:
+        assert session.scalar(select(Organization.id)) is None
+        assert session.scalar(select(User.id)) is None
+        assert session.scalar(select(Resource.id)) is None
+
+    with factory.begin() as session:
+        session.add(
+            Organization(
+                id=ORG_ID,
+                name="Existing demo organization",
+                type="Engineering lab",
+                city="Hyderabad",
+                area="Gachibowli",
+                is_demo=True,
+            )
+        )
+    with pytest.raises(RuntimeError, match="simulated seed failure"):
+        seed_database(factory, demo_password="test-demo-password", force=True)
+
+    with factory() as session:
+        organization = session.get(Organization, ORG_ID)
+        assert organization is not None
+        assert organization.name == "Existing demo organization"
+        assert session.scalar(select(User.id)) is None
+        assert session.scalar(select(Resource.id)) is None
     engine.dispose()
 
 

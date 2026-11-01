@@ -30,7 +30,7 @@ from app.services.accounts import (
     unique_display_name,
 )
 from app.services.audit_service import record_event
-from app.seed import reset_demo_data, seed_database
+from app.seed import seed_database
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -193,7 +193,6 @@ def reset_demo(
         "bookings": _demo_count(session, Booking),
         "incidents": _demo_count(session, Incident),
     }
-    reset_demo_data(session)
     seed_database(
         request.app.state.session_factory,
         request.app.state.demo_password,

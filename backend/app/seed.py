@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import Base, build_engine, build_session_factory
 from app.models import (
+    AccountProfile,
     AccessContract,
     AllocationDecision,
     AuditEvent,
@@ -26,14 +27,6 @@ from app.services.auth import hash_password
 
 ORG_ID = "northstar-engineering-lab-demo"
 NAMESPACE = UUID("e0766f91-0ec2-4d61-9a65-e3e7935b9084")
-DEMO_USER_IDS = {
-    "requester_a": str(uuid5(NAMESPACE, "user:requester-a")),
-    "requester_b": str(uuid5(NAMESPACE, "user:requester-b")),
-    "requester_c": str(uuid5(NAMESPACE, "user:requester-c")),
-    "lab_manager": str(uuid5(NAMESPACE, "user:lab-manager")),
-    "institution_admin": str(uuid5(NAMESPACE, "user:institution-admin")),
-    "judge_auditor": str(uuid5(NAMESPACE, "user:judge-auditor")),
-}
 ORGANIZATIONS = (
     (
         "northstar",
@@ -101,6 +94,7 @@ ORGANIZATIONS = (
     ),
 )
 ORGANIZATION_IDS = {row[0]: row[1] for row in ORGANIZATIONS}
+ORGANIZATION_NAMES_BY_ID = {row[1]: row[2] for row in ORGANIZATIONS}
 EXTENDED_USER_SPECS = (
     ("uppal_manager", "Meera Nair", "lab_manager", "uppal", "Fabrication", "Lab Manager"),
     ("uppal_r1", "Aarav Kulkarni", "requester", "uppal", "Mechanical Engineering", "B.Tech Year 2"),
@@ -137,8 +131,19 @@ EXTENDED_USER_SPECS = (
     ("kolkata_r2", "Mitali Roy", "requester", "kolkata", "Physics", "M.Sc. Year 1"),
     ("kolkata_r3", "Rahul Sen", "requester", "kolkata", "Mechanical Engineering", "B.E. Year 3"),
 )
-EXTENDED_USER_IDS = {
-    spec[0]: str(uuid5(NAMESPACE, f"user:{spec[0]}")) for spec in EXTENDED_USER_SPECS
+DEMO_USER_IDS = {
+    **{
+        "requester_a": str(uuid5(NAMESPACE, "user:requester-a")),
+        "requester_b": str(uuid5(NAMESPACE, "user:requester-b")),
+        "requester_c": str(uuid5(NAMESPACE, "user:requester-c")),
+        "lab_manager": str(uuid5(NAMESPACE, "user:lab-manager")),
+        "institution_admin": str(uuid5(NAMESPACE, "user:institution-admin")),
+        "judge_auditor": str(uuid5(NAMESPACE, "user:judge-auditor")),
+    },
+    **{
+        spec[0]: str(uuid5(NAMESPACE, f"user:{spec[0]}"))
+        for spec in EXTENDED_USER_SPECS
+    },
 }
 RESOURCE_IDS = {
     "printer": str(uuid5(NAMESPACE, "resource:3d-printer")),
@@ -250,7 +255,66 @@ DEMO_USERS = (
     ("institution_admin", "Institution Admin", "institution_admin"),
     ("judge_auditor", "Judge Auditor", "auditor"),
 )
-
+DEMO_USER_DEPARTMENTS = {
+    "requester_a": "Mechanical Engineering",
+    "requester_b": "Electronics",
+    "requester_c": "Computer Engineering",
+    "lab_manager": "Fabrication",
+    "institution_admin": "Institution Administration",
+    "judge_auditor": "Independent Review",
+    **{spec[0]: spec[4] for spec in EXTENDED_USER_SPECS},
+}
+DEMO_USER_DESIGNATIONS = {
+    "requester_a": "B.Tech Year 3",
+    "requester_b": "B.Tech Year 2",
+    "requester_c": "M.Tech Year 1",
+    "lab_manager": "Lab Manager",
+    "institution_admin": "Institution Administrator",
+    "judge_auditor": "Judge Auditor",
+    **{spec[0]: spec[5] for spec in EXTENDED_USER_SPECS},
+}
+DEMO_USER_INTENTS = {
+    "requester_a": "Use shared lab equipment for mechanical prototypes, coursework, and research.",
+    "requester_b": "Use shared electronics equipment for coursework, circuit builds, and testing.",
+    "requester_c": "Use computing and fabrication resources for engineering research and prototypes.",
+    "lab_manager": "Coordinate safe resource access, maintenance, and booking reviews.",
+    "institution_admin": "Manage institutional access and review the sample lab's operations.",
+    "judge_auditor": "Review demo records, access decisions, and the audit history.",
+    "uppal_manager": "Coordinate safe fabrication access, equipment maintenance, and booking reviews.",
+    "uppal_r1": "Build and test mechanical prototypes using the fabrication workshop.",
+    "uppal_r2": "Develop product-design prototypes using workshop and electronics resources.",
+    "uppal_r3": "Build and test electronics prototypes using fabrication equipment.",
+    "uppal_r4": "Prototype and test robotics projects using workshop equipment.",
+    "bengaluru_manager": "Coordinate safe access to computing, electronics, and immersive-media resources.",
+    "bengaluru_r1": "Use GPU computing resources for computer-engineering coursework and prototypes.",
+    "bengaluru_r2": "Develop product-design concepts using PCB and immersive-media resources.",
+    "bengaluru_r3": "Prototype mechatronics systems using electronics and computing equipment.",
+    "bengaluru_r4": "Use computing resources for computer-science research and coursework.",
+    "chennai_manager": "Coordinate safe access to applied-science and mechanical-testing resources.",
+    "chennai_r1": "Build and test electronics coursework using laboratory equipment.",
+    "chennai_r2": "Use imaging resources for biomedical-engineering coursework and research.",
+    "chennai_r3": "Test mechanical materials and prototypes using supervised equipment.",
+    "chennai_r4": "Create media-technology projects using approved lab resources.",
+    "pune_manager": "Coordinate safe access to design, mechanics, and electronics resources.",
+    "pune_r1": "Scan and test mechanical prototypes for engineering coursework.",
+    "pune_r2": "Develop industrial-design models using scanning and fabrication resources.",
+    "pune_r3": "Build and test electronics prototypes using shared components.",
+    "pune_r4": "Evaluate energy-system prototypes using laboratory resources.",
+    "mumbai_manager": "Coordinate safe access to media, event, and robotics resources.",
+    "mumbai_r1": "Build and test electrical-engineering projects using approved lab resources.",
+    "mumbai_r2": "Produce coursework and project media using the studio facilities.",
+    "mumbai_r3": "Prototype aerial robotics systems in the supervised flight cage.",
+    "mumbai_r4": "Support computer-science projects with approved media and robotics resources.",
+    "noida_manager": "Coordinate safe access to fabrication, project, and instrumentation resources.",
+    "noida_r1": "Build and characterize electronics coursework using supervised instruments.",
+    "noida_r2": "Develop computer-science prototypes in the project room.",
+    "noida_r3": "Mark and test aerospace-engineering prototypes using approved equipment.",
+    "noida_r4": "Develop industrial-design prototypes using shared fabrication resources.",
+    "kolkata_manager": "Coordinate safe access to electronics, fabrication, and applied-science resources.",
+    "kolkata_r1": "Build and test electrical-engineering coursework using PCB resources.",
+    "kolkata_r2": "Use fabrication and applied-science resources for physics coursework and research.",
+    "kolkata_r3": "Prototype mechanical designs using supervised printing and wind-tunnel resources.",
+}
 DEMO_RESOURCES = (
     ("printer", "3D Printer", "fabrication", ["3d printing", "prototyping"], "Fabrication Bay", "active", None, ["3D_PRINTER_OPERATION_3DP_101"]),
     ("camera", "Camera Kit", "media", ["video", "photography"], "Media Store", "active", None, ["MEDIA_KIT_CHECKOUT_MKC_101"]),
@@ -405,7 +469,7 @@ def seed_database(
     *,
     force: bool = False,
 ) -> None:
-    with session_factory() as session:
+    with session_factory.begin() as session:
         has_existing_data = any(
             session.execute(select(table).limit(1)).first() is not None
             for table in Base.metadata.sorted_tables
@@ -433,34 +497,20 @@ def seed_database(
                 display_name=label,
                 role=role,
                 organization_id=ORG_ID,
-                department={
-                    "requester_a": "Mechanical Engineering",
-                    "requester_b": "Electronics",
-                    "requester_c": "Computer Engineering",
-                    "lab_manager": "Fabrication",
-                    "institution_admin": "Institution Administration",
-                    "judge_auditor": "Independent Review",
-                }[key],
-                designation={
-                    "requester_a": "B.Tech Year 3",
-                    "requester_b": "B.Tech Year 2",
-                    "requester_c": "M.Tech Year 1",
-                    "lab_manager": "Lab Manager",
-                    "institution_admin": "Institution Administrator",
-                    "judge_auditor": "Judge Auditor",
-                }[key],
+                department=DEMO_USER_DEPARTMENTS[key],
+                designation=DEMO_USER_DESIGNATIONS[key],
                 is_demo=True,
                 password_hash=password_hash,
             )
             for key, label, role in DEMO_USERS
         }
         users["uppal_manager"] = User(
-            id=EXTENDED_USER_IDS["uppal_manager"],
+            id=DEMO_USER_IDS["uppal_manager"],
             display_name="Meera Nair",
             role="lab_manager",
             organization_id=ORGANIZATION_IDS["uppal"],
-            department="Fabrication",
-            designation="Lab Manager",
+            department=DEMO_USER_DEPARTMENTS["uppal_manager"],
+            designation=DEMO_USER_DESIGNATIONS["uppal_manager"],
             is_demo=True,
             password_hash=password_hash,
         )
@@ -477,7 +527,7 @@ def seed_database(
             resource = Resource(
                 id=RESOURCE_IDS[key],
                 owner_id=(
-                    EXTENDED_USER_IDS["uppal_manager"]
+                    DEMO_USER_IDS["uppal_manager"]
                     if key == "room"
                     else DEMO_USER_IDS["lab_manager"]
                 ),
@@ -927,7 +977,6 @@ def seed_database(
             users,
             password_hash,
         )
-        session.commit()
 
 
 def _seed_extended_demo_data(
@@ -946,12 +995,12 @@ def _seed_extended_demo_data(
     extended_users: dict[str, User] = {}
     for key, name, role, organization_key, department, designation in EXTENDED_USER_SPECS:
         user = users.get(key) or User(
-            id=EXTENDED_USER_IDS[key],
+            id=DEMO_USER_IDS[key],
             display_name=name,
             role=role,
             organization_id=ORGANIZATION_IDS[organization_key],
-            department=department,
-            designation=designation,
+            department=DEMO_USER_DEPARTMENTS[key],
+            designation=DEMO_USER_DESIGNATIONS[key],
             is_demo=True,
             password_hash=password_hash,
         )
@@ -1076,11 +1125,7 @@ def _seed_extended_demo_data(
         training_code_by_key[key] = code
         supervised = key not in {"gpu", "vr", "library", "podcast", "seminar", "project_room"}
         resource_id = str(uuid5(NAMESPACE, f"resource:{key}"))
-        owner_id = (
-            DEMO_USER_IDS[manager_key]
-            if manager_key in DEMO_USER_IDS
-            else EXTENDED_USER_IDS[manager_key]
-        )
+        owner_id = DEMO_USER_IDS[manager_key]
         description = (
             f"This fictional {name.lower()} supports {purpose.lower()} "
             f"at {org_name.replace(' (Sample)', '')}. "
@@ -1174,6 +1219,18 @@ def _seed_extended_demo_data(
     session.flush()
 
     all_users = {**users, **extended_users}
+    session.add_all(
+        AccountProfile(
+            user_id=user.id,
+            full_name=user.display_name,
+            organization_name=ORGANIZATION_NAMES_BY_ID[user.organization_id],
+            intended_use=DEMO_USER_INTENTS[key],
+            email_verified=False,
+            is_active=True,
+            auth_version=0,
+        )
+        for key, user in all_users.items()
+    )
     all_requesters = [
         key
         for key, person in all_users.items()
@@ -1215,11 +1272,7 @@ def _seed_extended_demo_data(
             if ORGANIZATION_IDS[key] == all_users[user_key].organization_id
         )
         verified_by_key = manager_keys[organization_key]
-        verified_by = (
-            DEMO_USER_IDS[verified_by_key]
-            if verified_by_key in DEMO_USER_IDS
-            else EXTENDED_USER_IDS[verified_by_key]
-        )
+        verified_by = DEMO_USER_IDS[verified_by_key]
         status = training_statuses[(index - 19) % len(training_statuses)]
         if status == "expired":
             valid_to = now - timedelta(days=1 + index % 20)
@@ -1308,11 +1361,7 @@ def _seed_extended_demo_data(
         resource_key = history_resource_key(index)
         organization_key = resource_organizations.get(resource_key, "northstar")
         manager_key = manager_keys[organization_key]
-        manager_id = (
-            DEMO_USER_IDS[manager_key]
-            if manager_key in DEMO_USER_IDS
-            else EXTENDED_USER_IDS[manager_key]
-        )
+        manager_id = DEMO_USER_IDS[manager_key]
         booking = Booking(
             id=SEED_OBJECT_IDS[f"booking:history-{index:02d}"],
             request_id=request_row.id,
@@ -1435,11 +1484,7 @@ def _seed_extended_demo_data(
         )
         session.add(request_row)
         manager_key = manager_keys[organization_key]
-        manager_id = (
-            DEMO_USER_IDS[manager_key]
-            if manager_key in DEMO_USER_IDS
-            else EXTENDED_USER_IDS[manager_key]
-        )
+        manager_id = DEMO_USER_IDS[manager_key]
         session.add(
             AllocationDecision(
                 id=SEED_OBJECT_IDS[f"decision:waitlisted-extra-{index:02d}"],
@@ -1499,11 +1544,7 @@ def _seed_extended_demo_data(
         resource_key = history_resource_key(index)
         organization_key = resource_organizations.get(resource_key, "northstar")
         manager_key = manager_keys[organization_key]
-        manager_id = (
-            DEMO_USER_IDS[manager_key]
-            if manager_key in DEMO_USER_IDS
-            else EXTENDED_USER_IDS[manager_key]
-        )
+        manager_id = DEMO_USER_IDS[manager_key]
         action, entity_type, entity_id = {
             "CLOSED": ("booking.closed", "booking", booking.id),
             "CANCELLED": ("request.cancelled", "request", request_row.id),
@@ -1546,7 +1587,6 @@ def reset_demo_data(session: Session) -> None:
         Organization,
     ):
         session.execute(delete(model).where(model.is_demo.is_(True)))
-    session.commit()
 
 
 def main() -> None:
