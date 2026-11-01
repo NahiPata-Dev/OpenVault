@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { Box, Building2, Camera, Cpu, FlaskConical, Printer, Wrench } from "lucide-react";
 import { api } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
 import type { Role } from "../api/types";
 import { Badge, Stepper } from "../components/UI";
 import { EmptyState, ErrorState, Loading } from "../components/Feedback";
@@ -150,6 +151,7 @@ function ResourcePlaceholder({ category }: { category: string }) {
 }
 
 export function ResourcesPage() {
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const initialCity = searchParams.get("city") ?? "";
   const initialFilters: CatalogFilters = {
@@ -356,7 +358,9 @@ export function ResourcesPage() {
                 <ResourcePlaceholder category={resource.category} />
                 <div className="card-title-row">
                   <div><p className="eyebrow">{statusLabel(resource.category)}</p><h2>{resource.name}</h2></div>
-                  <StatusBadge value="" ready={resource.readiness.ready} />
+                  {user?.role === "requester"
+                    ? <StatusBadge value="" ready={resource.readiness.ready} />
+                    : <Badge tone="info">{user?.role === "auditor" ? "Read-only catalog" : "Requester eligibility check"}</Badge>}
                 </div>
                 <StatusBadge value={resource.status} />
                 {resource.short_summary.toLowerCase().startsWith("sample data") && <Badge>Sample data</Badge>}
@@ -365,11 +369,26 @@ export function ResourcesPage() {
                 <p className="muted resource-location">
                   {[resource.area, resource.city].filter(Boolean).join(", ") || resource.location}
                 </p>
-                <div className="resource-bookability" aria-label={`Can I book this? ${resource.status === "active" && resource.readiness.ready ? "Time-specific checks still apply" : "Review requirements before requesting"}`}>
+                <div className="resource-bookability" aria-label={`Can I book this? ${user?.role !== "requester"
+                  ? "Eligibility is assessed for the requester and selected time"
+                  : resource.readiness.blockers.length > 0
+                    ? resource.readiness.blockers.map((blocker) => blocker.message).join(". ")
+                    : "Current requirements pass; selected-time eligibility still applies"}`}>
                   <strong>Can I book this?</strong>
-                  <span>{resource.status === "active" && resource.readiness.ready
-                    ? "Ready to request; time-specific checks still apply."
-                    : "Review the requirements and blockers before requesting."}</span>
+                  {user?.role !== "requester" ? (
+                    <span>This view does not evaluate your booking eligibility. The service checks a requester’s requirements for their selected time.</span>
+                  ) : resource.readiness.blockers.length > 0 ? (
+                    <ul>
+                      {resource.readiness.blockers.map((blocker) => (
+                        <li key={blocker.code}>
+                          <span>{blocker.message}</span>
+                          <small>{blocker.next_action}</small>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <span>Current requirements pass for your account. The selected time and final eligibility are checked when you submit a request.</span>
+                  )}
                 </div>
                 <div className="tag-list">
                   <Badge tone={resource.supervision_required ? "warning" : "neutral"}>

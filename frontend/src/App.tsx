@@ -523,7 +523,7 @@ interface AdminDashboardState {
 interface AuditorResourceSummary {
   total: number;
   active: number;
-  needsReview: number;
+  unavailable: number;
 }
 
 interface DashboardAction {
@@ -655,11 +655,11 @@ function DashboardPage({ user }: { user: User }) {
             }))
           : api.get<{
               total: number;
-              items: { status: string; readiness: { ready: boolean } }[];
+              items: { status: string }[];
             }>("/resources").then((resources) => active && setAuditorResources({
               total: resources.total,
               active: resources.items.filter((resource) => resource.status === "active").length,
-              needsReview: resources.items.filter((resource) => !resource.readiness.ready).length,
+              unavailable: resources.items.filter((resource) => resource.status !== "active").length,
             }));
     void loads.catch((loadError: unknown) => active && setError(loadError))
       .finally(() => active && setLoading(false));
@@ -865,7 +865,7 @@ function DashboardPage({ user }: { user: User }) {
         <div className="dashboard-metrics">
           <StatCard label="Resources in catalog" value={auditorResources.total} />
           <StatCard label="Active resources" value={auditorResources.active} />
-          <StatCard label="Resources needing review" value={auditorResources.needsReview} detail="Catalog readiness checks only" />
+          <StatCard label="On hold or retired" value={auditorResources.unavailable} detail="Based on resource status, not requester training" />
         </div>
       )}
     </div>
