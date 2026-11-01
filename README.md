@@ -53,6 +53,10 @@ actions. The feature is disabled by default and is an evaluation shortcut:
 keep it disabled in real deployments. The usual email/password sign-in and
 registration remain available.
 
+Resource readiness is evaluated for the signed-in requester’s training and
+resource requirements; it is not a global resource-availability status.
+Auditors see the read-only catalog without a personal eligibility assessment.
+
 See [`docs/MANUAL_TEST.md`](./docs/MANUAL_TEST.md) for the sample journeys and
 [`docs/SECURITY_PRIVACY_FAIRNESS.md`](./docs/SECURITY_PRIVACY_FAIRNESS.md) for
 the evaluation boundary.
