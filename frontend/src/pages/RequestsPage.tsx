@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
-import { Badge } from "../components/UI";
+import { Badge, Button, Modal, Toast, useToast } from "../components/UI";
 import { EmptyState, ErrorState, Loading } from "../components/Feedback";
 import { PageHeading, StatusBadge } from "../components/PageHeading";
 import { formatIST, formatWindow, statusLabel } from "../lib/format";
@@ -232,6 +232,8 @@ export function RequestsPage() {
   const [error, setError] = useState<unknown>(null);
   const [actionError, setActionError] = useState<unknown>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [requestToCancel, setRequestToCancel] = useState<string | null>(null);
+  const toast = useToast();
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortOrder, setSortOrder] = useState("newest");
 
@@ -255,6 +257,8 @@ export function RequestsPage() {
     setActionError(null);
     try {
       await api.post(`/requests/${requestId}/cancel`);
+      setRequestToCancel(null);
+      toast.show("Cancellation recorded.");
       await load();
     } catch (cancelError) {
       setActionError(cancelError);
@@ -314,7 +318,7 @@ export function RequestsPage() {
                 </div>
               )}
               {!booking && ["PENDING_REVIEW", "WAITLISTED", "INELIGIBLE"].includes(request.status) && (
-                <button className="button button-danger" type="button" disabled={pendingId === request.id} onClick={() => void cancel(request.id)}>
+                <button className="button button-danger" type="button" disabled={pendingId === request.id} onClick={() => setRequestToCancel(request.id)}>
                   {pendingId === request.id ? "Cancelling…" : "Cancel request"}
                 </button>
               )}
@@ -322,6 +326,19 @@ export function RequestsPage() {
           ))}
         </div>
       )}
+      <Modal open={requestToCancel !== null} title="Cancel this request?" onClose={() => {
+        if (pendingId === null) setRequestToCancel(null);
+      }}>
+        <p>The service will check whether cancellation is still allowed. This action is recorded in the request history.</p>
+        {actionError !== null && <ErrorState error={actionError} />}
+        <div className="card-actions">
+          <Button type="button" variant="danger" disabled={pendingId !== null} onClick={() => {
+            if (requestToCancel) void cancel(requestToCancel);
+          }}>{pendingId !== null ? "Cancelling…" : "Confirm cancellation"}</Button>
+          <Button type="button" variant="secondary" disabled={pendingId !== null} onClick={() => setRequestToCancel(null)}>Keep request</Button>
+        </div>
+      </Modal>
+      <Toast message={toast.message} onDismiss={toast.dismiss} />
     </>
   );
 }
@@ -396,6 +413,8 @@ export function BookingDetailPage() {
   const [incidentId, setIncidentId] = useState<string | null>(null);
   const [incidentPending, setIncidentPending] = useState(false);
   const [cancelPending, setCancelPending] = useState(false);
+  const [cancelConfirmationOpen, setCancelConfirmationOpen] = useState(false);
+  const toast = useToast();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -425,12 +444,14 @@ export function BookingDetailPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  async function cancelRequest() {
-    if (!record || !window.confirm("Cancel this request? The service will validate whether cancellation is still allowed.")) return;
+  async function confirmCancellation() {
+    if (!record) return;
     setCancelPending(true);
     setActionError(null);
     try {
       await api.post(`/requests/${record.request.id}/cancel`);
+      setCancelConfirmationOpen(false);
+      toast.show("Cancellation recorded.");
       await load();
     } catch (cancelError) {
       setActionError(cancelError);
@@ -516,7 +537,7 @@ export function BookingDetailPage() {
           <div className="booking-action">
             <h3>Cancel request</h3>
             <p className="helper">Cancellation is subject to the resource cutoff ({resource?.cancellation_cutoff ?? 2} hours before the start). The service enforces the final rule.</p>
-            <button type="button" className="button button-danger" disabled={cancelPending} onClick={() => void cancelRequest()}>{cancelPending ? "Cancelling…" : "Cancel request"}</button>
+            <button type="button" className="button button-danger" disabled={cancelPending} onClick={() => setCancelConfirmationOpen(true)}>{cancelPending ? "Cancelling…" : "Cancel request"}</button>
           </div>
         )}
         {["CONFIRMED", "NO_SHOW"].includes(booking.status) && <ChecklistForm bookingId={bookingId} stage="check-in" onComplete={() => void load()} />}
@@ -536,6 +557,19 @@ export function BookingDetailPage() {
           </form>
         )}
       </section>
+      <Modal open={cancelConfirmationOpen} title="Cancel this request?" onClose={() => {
+        if (!cancelPending) setCancelConfirmationOpen(false);
+      }}>
+        <p>The service will check whether cancellation is allowed for this session and record the result.</p>
+        {actionError !== null && <ErrorState error={actionError} />}
+        <div className="card-actions">
+          <Button type="button" variant="danger" disabled={cancelPending} onClick={() => void confirmCancellation()}>
+            {cancelPending ? "Cancelling…" : "Confirm cancellation"}
+          </Button>
+          <Button type="button" variant="secondary" disabled={cancelPending} onClick={() => setCancelConfirmationOpen(false)}>Keep request</Button>
+        </div>
+      </Modal>
+      <Toast message={toast.message} onDismiss={toast.dismiss} />
     </>
   );
 }

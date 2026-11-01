@@ -66,7 +66,16 @@ def get_optional_user(
 
 
 def require_roles(*roles: str) -> Callable:
-    def dependency(user: User = Depends(get_current_user)) -> User:
+    def dependency(
+        request: Request,
+        user: User = Depends(get_current_user),
+    ) -> User:
+        if request.session.get("judge_mode") and "institution_admin" in roles:
+            raise_api_error(
+                "forbidden",
+                "Judge sessions cannot access institution administration.",
+                403,
+            )
         if user.role not in roles:
             raise_api_error(
                 "forbidden",

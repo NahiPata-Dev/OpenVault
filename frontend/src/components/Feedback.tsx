@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { ApiError } from "../api/client";
-import { Alert, EmptyState as UIEmptyState, Skeleton } from "./UI";
+import { Alert, Button, EmptyState as UIEmptyState, Skeleton } from "./UI";
 
 export function Loading({ label = "Loading…" }: { label?: string }) {
   return (
@@ -11,11 +11,19 @@ export function Loading({ label = "Loading…" }: { label?: string }) {
   );
 }
 
-export function EmptyState({ children }: { children: ReactNode }) {
-  return <UIEmptyState>{children}</UIEmptyState>;
+export function EmptyState({
+  title,
+  children,
+  action,
+}: {
+  title?: string;
+  children: ReactNode;
+  action?: ReactNode;
+}) {
+  return <UIEmptyState title={title} action={action}>{children}</UIEmptyState>;
 }
 
-export function ErrorState({ error }: { error: unknown }) {
+export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
   const apiError =
     error instanceof ApiError
       ? error
@@ -34,6 +42,7 @@ export function ErrorState({ error }: { error: unknown }) {
       {apiError.requestId && (
         <p className="mt-2 text-sm">Reference: {apiError.requestId}</p>
       )}
+      {onRetry && <Button type="button" variant="secondary" className="mt-3" onClick={onRetry}>Try again</Button>}
     </Alert>
   );
 }

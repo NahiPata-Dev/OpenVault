@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Badge, Button, Card, Input, Select, Textarea } from "../components/UI";
 import { EmptyState, ErrorState, Loading } from "../components/Feedback";
-import { PageHeading } from "../components/PageHeading";
+import { PageHeading, StatusBadge } from "../components/PageHeading";
 
 interface Resource {
   id: string;
@@ -302,7 +302,7 @@ export function ResourceManagementPage() {
           ) : <div className="resource-management-list">
             {resources.map((resource) => (
               <Card key={resource.id} className="management-resource-card">
-                <div className="card-title-row"><h3>{resource.name}</h3><Badge>{resource.status.replaceAll("_", " ")}</Badge></div>
+                <div className="card-title-row"><h3>{resource.name}</h3><StatusBadge value={resource.status} /></div>
                 <p>{resource.category} · {[resource.building, resource.room].filter(Boolean).join(" · ") || resource.location}</p>
                 {resource.is_demo && <Badge>Sample data</Badge>}
                 <div className="card-actions">

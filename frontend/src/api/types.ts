@@ -4,6 +4,8 @@ export type Role =
   | "institution_admin"
   | "auditor";
 
+export type JudgeRole = "requester" | "manager" | "auditor";
+
 export interface User {
   id: string;
   display_name: string;

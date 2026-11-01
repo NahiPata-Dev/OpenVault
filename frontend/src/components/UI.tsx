@@ -142,6 +142,24 @@ export function Card({
   return <Element className={`card ${className}`} {...props}>{children}</Element>;
 }
 
+export function StatCard({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: ReactNode;
+  detail?: string;
+}) {
+  return (
+    <Card className="stat-card">
+      <p className="stat-card-label">{label}</p>
+      <strong className="stat-card-value">{value}</strong>
+      {detail && <p className="stat-card-detail">{detail}</p>}
+    </Card>
+  );
+}
+
 type BadgeTone = "neutral" | "success" | "warning" | "danger" | "info";
 
 export function Badge({
@@ -268,7 +286,7 @@ export function Table({
         <thead><tr>{headers.map((header) => <th scope="col" key={header}>{header}</th>)}</tr></thead>
         <tbody>
           {rows.map((row, rowIndex) => (
-            <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>
+            <tr key={rowIndex}>{row.map((cell, cellIndex) => <td data-label={headers[cellIndex]} key={cellIndex}>{cell}</td>)}</tr>
           ))}
         </tbody>
       </table>
@@ -293,15 +311,18 @@ export function Skeleton({
 export function EmptyState({
   title = "Nothing to show yet",
   children,
+  action,
 }: {
   title?: string;
   children: ReactNode;
+  action?: ReactNode;
 }) {
   return (
     <div className="empty-state">
       <span className="empty-state-mark" aria-hidden="true">—</span>
       <h2>{title}</h2>
       <p>{children}</p>
+      {action && <div className="empty-state-action">{action}</div>}
     </div>
   );
 }

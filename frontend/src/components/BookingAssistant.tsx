@@ -313,9 +313,7 @@ export function BookingAssistant({ role }: { role: Role }) {
                   {message.response && (
                     <>
                       <span className="assistant-source">
-                        {message.response.source === "model"
-                          ? "Powered by AI model"
-                          : "Powered by rules"}
+                        {message.response.source === "model" ? "AI mode" : "Basic mode"}
                       </span>
                       {message.resources && message.resources.length > 0 && (
                         <div className="assistant-suggestions">

@@ -1,9 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ApiError, api } from "../api/client";
-import type { DemoAccount, PublicSummary, Role } from "../api/types";
+import type { JudgeRole, PublicSummary, Role } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
-import { PageHeading } from "../components/PageHeading";
+import { PageHeading, StatusBadge } from "../components/PageHeading";
 import { ErrorState, Loading } from "../components/Feedback";
 import {
   Alert,
@@ -235,12 +235,10 @@ function BrowseByCity({ userIsSignedIn }: { userIsSignedIn: boolean }) {
 }
 
 export function LoginPage() {
-  const { accounts, accountsError, signIn, signInDemo } = useAuth();
+  const { judgeLoginAvailable, signIn, signInJudge } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [demoPassword, setDemoPassword] = useState("");
-  const [showDemoPassword, setShowDemoPassword] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [pending, setPending] = useState(false);
   const location = useLocation();
@@ -262,12 +260,12 @@ export function LoginPage() {
     }
   }
 
-  async function quickLogin(account: DemoAccount) {
+  async function quickLogin(role: JudgeRole) {
     setPending(true);
     setError(null);
     try {
-      await signInDemo(account.id, demoPassword);
-      navigate(safeNextPath, { replace: true });
+      await signInJudge(role);
+      navigate("/dashboard", { replace: true });
     } catch (loginError) {
       setError(loginError);
     } finally {
@@ -288,6 +286,37 @@ export function LoginPage() {
           <p className="eyebrow">WELCOME BACK</p>
           <h2 id="login-title">Sign in to OpenVault</h2>
           <p className="muted">Use your institutional account to continue.</p>
+          {judgeLoginAvailable && (
+            <section className="judge-access-panel" aria-labelledby="judge-access-title">
+              <div>
+                <p className="eyebrow">EVALUATION ACCESS</p>
+                <h3 id="judge-access-title">Judge access</h3>
+                <p className="muted">Open a fictional sample account with one click.</p>
+              </div>
+              <div className="judge-access-options">
+                {([
+                  ["requester", "Requester", "Find resources and submit a booking request."],
+                  ["manager", "Lab manager", "Review requests and manage resource access."],
+                  ["auditor", "Auditor", "Explore sample activity and the audit trail."],
+                ] as const).map(([role, label, description]) => (
+                  <Button
+                    className="judge-access-button"
+                    key={role}
+                    type="button"
+                    variant="secondary"
+                    disabled={pending}
+                    onClick={() => void quickLogin(role)}
+                  >
+                    <span className="judge-access-button-copy">
+                      <strong>{label}</strong>
+                      <small>{description}</small>
+                    </span>
+                    <span aria-hidden="true">→</span>
+                  </Button>
+                ))}
+              </div>
+            </section>
+          )}
           {error !== null && <Alert tone="danger" title="We couldn’t sign you in">{errorText(error)}</Alert>}
           <form onSubmit={(event) => void submit(event)} noValidate>
             <Input label="Email address" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
@@ -295,7 +324,7 @@ export function LoginPage() {
               <Input label="Password" type={showPassword ? "text" : "password"} autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} />
               <button type="button" className="password-toggle" onClick={() => setShowPassword((value) => !value)} aria-pressed={showPassword}>{showPassword ? "Hide" : "Show"}</button>
             </div>
-            <div className="auth-links"><Link to="/login?forgot=1">Forgot password?</Link><Link to="/signup">Create an account</Link></div>
+            <div className="auth-links"><Link to="/login?forgot=1">Forgot password?</Link><Link to="/signup">Sign up</Link></div>
             {new URLSearchParams(location.search).has("forgot") && (
               <Alert className="forgot-note" title="Password reset isn’t available in this prototype">
                 Please contact your institution administrator for help accessing your account.
@@ -304,25 +333,6 @@ export function LoginPage() {
             <Button className="w-full button-large" type="submit" disabled={pending}>{pending ? "Signing in…" : "Sign in"}</Button>
           </form>
 
-          <details className="quick-login">
-            <summary>Judge quick login <span>Seeded sample accounts</span></summary>
-            <div className="quick-login-body">
-              <p className="helper">Demo accounts use the shared password provided by the institution.</p>
-              <div className="password-field">
-                <Input label="Shared demo password" type={showDemoPassword ? "text" : "password"} autoComplete="off" value={demoPassword} onChange={(event) => setDemoPassword(event.target.value)} />
-                <button type="button" className="password-toggle" onClick={() => setShowDemoPassword((value) => !value)} aria-pressed={showDemoPassword}>{showDemoPassword ? "Hide" : "Show"}</button>
-              </div>
-              {accountsError && <Alert tone="warning">{accountsError}</Alert>}
-              <div className="quick-account-list">
-                {accounts.map((account) => (
-                  <Button key={account.id} type="button" variant="secondary" className="quick-account" disabled={pending || !demoPassword} onClick={() => void quickLogin(account)}>
-                    <span>{account.display_name}</span><Badge>{roleLabels[account.role]}</Badge>
-                  </Button>
-                ))}
-                {accounts.length === 0 && !accountsError && <p className="helper">No seeded accounts are available.</p>}
-              </div>
-            </div>
-          </details>
           <p className="auth-legal">By continuing, you agree to follow your institution’s access and safety requirements.</p>
         </div>
       </section>
@@ -593,7 +603,7 @@ export function ProfilePage() {
         <section className="profile-tab" role="tabpanel" id="panel-ownership" aria-labelledby="tab-ownership">
           {application ? (
             <Card className="profile-card">
-              <div className="card-title-row"><div><p className="eyebrow">OWNER APPLICATION</p><h2>Application status</h2></div><Badge tone={application.status === "approved" ? "success" : application.status === "rejected" ? "danger" : "warning"}>{application.status}</Badge></div>
+              <div className="card-title-row"><div><p className="eyebrow">OWNER APPLICATION</p><h2>Application status</h2></div><StatusBadge value={application.status} /></div>
               <dl className="request-details">
                 <div><dt>Organization</dt><dd>{application.organization}</dd></div>
                 <div><dt>Role</dt><dd>{application.role_in_organization}</dd></div>

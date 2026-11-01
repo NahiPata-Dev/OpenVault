@@ -6,6 +6,7 @@ from uuid import uuid4
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
+from authlib.integrations.starlette_client import OAuth
 from itsdangerous import BadSignature
 from sqlalchemy import select
 from starlette.middleware.cors import CORSMiddleware
@@ -21,6 +22,7 @@ from app.api.ai import router as ai_router
 from app.api.analytics import router as analytics_router
 from app.api.bookings import router as bookings_router
 from app.api.dashboard import router as dashboard_router
+from app.api.feedback import router as feedback_router
 from app.api.incidents import router as incidents_router
 from app.api.notifications import router as notifications_router
 from app.api.policies import router as policies_router
@@ -93,6 +95,40 @@ def create_app(
         demo_mode
         if demo_mode is not None
         else os.environ.get("DEMO_MODE", "false").casefold() == "true"
+    )
+    app.state.judge_login_enabled = (
+        os.environ.get("JUDGE_LOGIN_ENABLED", "false").casefold() == "true"
+    )
+    oauth = OAuth()
+    oauth_providers = (
+        (
+            "google",
+            "GOOGLE_CLIENT_ID",
+            "GOOGLE_CLIENT_SECRET",
+            "https://accounts.google.com/.well-known/openid-configuration",
+        ),
+        (
+            "linkedin",
+            "LINKEDIN_CLIENT_ID",
+            "LINKEDIN_CLIENT_SECRET",
+            "https://www.linkedin.com/oauth/.well-known/openid-configuration",
+        ),
+    )
+    for name, client_id_env, client_secret_env, metadata_url in oauth_providers:
+        client_id = os.environ.get(client_id_env)
+        client_secret = os.environ.get(client_secret_env)
+        if client_id and client_secret:
+            oauth.register(
+                name=name,
+                client_id=client_id,
+                client_secret=client_secret,
+                server_metadata_url=metadata_url,
+                client_kwargs={"scope": "openid email profile"},
+            )
+    app.state.oauth = oauth
+    app.state.oauth_redirect_base_url = os.environ.get("OAUTH_REDIRECT_BASE_URL")
+    app.state.frontend_base_url = os.environ.get(
+        "FRONTEND_BASE_URL", "http://localhost:5173"
     )
     app.state.public_summary_buckets = {}
     app.state.public_summary_lock = Lock()
@@ -289,6 +325,7 @@ def create_app(
     app.include_router(audit_router)
     app.include_router(bookings_router)
     app.include_router(dashboard_router)
+    app.include_router(feedback_router)
     app.include_router(incidents_router)
     app.include_router(notifications_router)
     app.include_router(policies_router)

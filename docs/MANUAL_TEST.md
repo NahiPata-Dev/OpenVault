@@ -3,12 +3,16 @@
 ## Multi-city catalog and assistant-assisted request
 
 1. Start the backend and frontend using the setup commands in the repository
-   [README](../README.md). Sign out if already authenticated and open the public
-   home page. In **Browse by city**, verify the city cards and their resource and
+   [README](../README.md). For one-click judge entry, set
+   `JUDGE_LOGIN_ENABLED=true` in the backend environment before startup. The
+   panel is hidden by default; when disabled, use normal email/password
+   sign-in. Sign out if already authenticated and open the public home page.
+   In **Browse by city**, verify the city cards and their resource and
    organization counts load from the public summary. Select **Hyderabad**; the
    city card takes a signed-out visitor to sign-in.
-2. Sign in as **Tara Iyer** (requester, Uppal Circuit & Fabrication House
-   (Sample)) with the shared demo password. In **Resources**, filter by
+2. Select **Requester** in **Judge access**. This opens the fixed fictional
+   requester sample account (Tara Iyer, Uppal Circuit & Fabrication House).
+   In **Resources**, filter by
    **Hyderabad**, **Uppal**, and the Uppal Circuit organization; then search for
    **CO2 Laser Cutter**. Confirm that the card shows the institution and city,
    and that the detail page identifies the sample resource.
@@ -24,13 +28,15 @@
    the assistant does not silently choose those details.
 4. Do not confirm a request while the blocker remains: the normal request API
    saves a blocked submission as **INELIGIBLE**, which a manager cannot approve.
-   Sign in as **Lab Manager Meera Nair** and open **Training sign-off**. Select
+   Use **Switch role** to enter as **Lab Manager Meera Nair** and open
+   **Training sign-off**. Select
    **Tara Iyer**, **CO2 Laser Cutter**, and the listed
    **Laser Safety Induction LSI-101** requirement. Record a verified **Valid**
    sign-off with a current start date and a future end date. This is demo
    training data, not a real-world certification.
-5. Sign back in as **Tara Iyer**. Ask the assistant about her eligibility again
-   and confirm the failure count is cleared; if needed, use **View details** >
+5. Use **Switch role** to return to **Requester**. Ask the assistant about the
+   requester's eligibility again and confirm the failure count is cleared; if
+   needed, use **View details** >
    **Requirements** to inspect the individual check. Prepare a draft with a
    specific future slot and allowed use, for example:
 
@@ -42,41 +48,49 @@
 6. Select **Confirm request**. For an eligible slot, expect **Submitted —
    pending review**; the response is still a request, not a confirmed booking.
    If a blocker remains, the server may save an **INELIGIBLE** request instead.
-7. Sign in as **Lab Manager Meera Nair**, open **Manager queue**, locate Tara's
-   pending CO2 Laser Cutter request, and select **Approve** with the required
-   reason. Expect the request to be approved and a booking created. The assistant
-   did not make this decision; the authorized manager did.
+7. Use **Switch role** to enter as **Lab manager**, open **Manager queue**, and
+   locate Tara's CO2 Laser Cutter request. Review the current eligibility and
+   conflict checks; select **Approve** with the required reason only when the
+   service allows it. Verify the decision and booking in the service response.
+   The assistant did not make this decision; the authorized manager did.
 
-## Sign in and verify the training blocker
+## Judge role access and verify blockers
 
-1. Start the backend and frontend using the setup commands in the repository
-   README. Open `http://127.0.0.1:5173`.
-2. The login page displays the shared demo password, `northstar-demo`. Select
-   **Requester C**. The app should open the resource list with a **DEMO DATA**
-   banner.
-3. Search for **oscilloscope**, then select **View details** on **Oscilloscope
-   Training Station**. Confirm that the training requirement and supervised
-   windows are shown.
-4. In **Request this resource**, leave **Project** selected, enter a valid
-   start and end in IST, and select **Submit request**. Expect **INELIGIBLE**
-   with the `missing_training` blocker and its next action. No booking should
-   be created.
-5. To check the maintenance blocker, return to **Resources**, open
-   **Maintenance Hold Resource**, submit a valid interval, and confirm the
-   `maintenance_hold` blocker. The backend must not approve it.
+1. With `JUDGE_LOGIN_ENABLED=true`, confirm that the login page shows exactly
+   the Requester, Lab manager, and Auditor judge entry options. Selecting an
+   option opens that role's fixed fictional sample account without requesting
+   an email or password.
+2. Open **Switch role** and move between Requester, Lab manager, and Auditor.
+   Confirm the session remains in judge mode and the navigation changes with
+   the selected role. The auditor view is read-only; it must not expose admin
+   or demo-reset actions.
+3. Use the requester role and open **CO2 Laser Cutter**. The current sample
+   requester has a `Laser Safety Induction LSI-101` blocker. Confirm the
+   requirements and next action are displayed. Submitting while blocked must
+   not create an approved booking.
+4. Switch to **Lab manager** and open **Training sign-off**. Select the
+   requester, resource, and `Laser Safety Induction LSI-101`; record a verified
+   **Valid** sign-off with a current start date and a future end date. This is
+   sample training data, not a real-world certification.
+5. Switch back to **Requester** and re-check eligibility. The service's
+   response determines whether the request can proceed; a clear blocker is
+   never assumed by the UI. A maintenance hold remains in force even after its
+   review date and cannot be bypassed by judge access.
 
 ## Complete an eligible request and handover
 
-6. Select **Log out**, then sign in as **Requester A** with the same password.
-   Find the oscilloscope station, open its details, and submit a **Project**
-   request for a one-hour interval. Use a start time within the next 15 minutes
-   (IST) so the check-in window is open after review. Expect **PENDING REVIEW**,
-   not an approved booking.
-7. Log out and sign in as **Lab Manager**. Open **Manager queue** and locate
-   Requester A’s oscilloscope request. Review its eligibility and allocation
-   recommendation. Enter a reason and select **Approve**. Expect a confirmed
-   booking and an Access Contract.
-8. Log out and sign in as **Requester A**. Open **My requests**, then
+6. As **Requester**, choose a resource and future interval for which the
+   service reports no eligibility blockers. Submit a **Project** request for a
+   one-hour interval. Use a start time within the next 15 minutes (IST) only if
+   the approved session is expected to begin soon; otherwise choose a suitable
+   future slot. An eligible submission should be **PENDING REVIEW**, not an
+   approved booking. If the service reports a blocker, resolve it before
+   expecting that state.
+7. Switch to **Lab manager**. Open **Manager queue** and locate the request.
+   Review its eligibility and allocation recommendation. Enter a reason and
+   select **Approve** only if the service allows the decision. Verify the
+   resulting booking and Access Contract from the service response.
+8. Switch back to **Requester**. Open **My requests**, then
    **View Access Contract**. Check the **Access Contract (session conditions)**
    snapshot and its note that it is an application record, not a legal
    contract.
@@ -87,13 +101,11 @@
 
 ## Review the incident and audit history
 
-10. Sign in as **Lab Manager**, open **Incidents**, and select the new
-    oscilloscope discrepancy. Inspect its description and any recorded
-    responses. **Current UI limitation:** the detail page has no response form
-    or **Under review** action. The backend requires an incident to enter
-    review before it can be resolved, so do not submit **Resolve incident**
-    while the incident is still open. The API journey test verifies the full
-    manager review, response, and resolution sequence.
+10. Switch to **Lab manager**, open **Incidents**, and select the new
+    discrepancy. Inspect its description, add a response if needed, and move it
+    to **Under review** with a written reason. Resolve or dismiss it only after
+    review, with a written rationale. Confirm the outcome in the service
+    response and audit history.
 11. Open **Audit timeline** and select **Oscilloscope Training Station**.
     Confirm events are in chronological order and include the request,
     approval, booking handover, incident, and resolution. Enter the booking ID
@@ -104,10 +116,12 @@
 
 ## Competing request / waitlist path
 
-13. Sign in as **Requester A** and submit a **Project** request for a future
-    one-hour slot on **Electronics Bench**. Sign in as **Requester B** and
-    submit another request for the same interval.
-14. As **Lab Manager**, open **Manager queue**. Confirm both requests have
+13. The judge requester role always represents one fixed account and cannot be
+    used to impersonate a second requester. To test competition, prepare two
+    separate normal requester accounts in an isolated test deployment. Submit
+    a **Project** request from each for the same future one-hour
+    **Electronics Bench** slot.
+14. As a manager account, open **Manager queue**. Confirm both requests have
     eligibility and allocation recommendations. Enter a reason and select
     **Waitlist** for one request first, while both are still pending; then
     select **Approve** for the other. As the waitlisted requester, open **My
@@ -115,4 +129,6 @@
     The waitlisted request must not show a confirmed booking.
 
 The automated API test uses an isolated, seeded SQLite database and test-only
-credentials; it does not change the judge database.
+credentials; it does not change the judge database. Judge login is an
+evaluation shortcut controlled by `JUDGE_LOGIN_ENABLED`; leave it disabled in
+real deployments.

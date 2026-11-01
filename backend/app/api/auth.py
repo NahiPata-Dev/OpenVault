@@ -14,25 +14,39 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_session
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, get_optional_user
 from app.errors import raise_api_error
 from app.models import AccountProfile, LoginAttempt, User
 from app.schemas import (
     AccountLogin,
     AccountRegister,
+    AuthSessionRead,
     DemoAccountRead,
     DemoAccountsRead,
     DemoLoginRequest,
     DemoLoginResponse,
+    JudgeLoginRequest,
+    JudgeRole,
     UserRead,
 )
 from app.services.accounts import organization_scope, unique_display_name
 from app.services.auth import hash_password, verify_password
+from app.services.audit_service import record_event
+from app.seed import DEMO_USER_IDS
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 OAuthProvider = Literal["google", "linkedin"]
 LOGIN_WINDOW = timedelta(minutes=15)
 LOGIN_FAILURE_LIMIT = 5
+JUDGE_LOGIN_WINDOW = timedelta(minutes=10)
+JUDGE_LOGIN_LIMIT = 30
+JUDGE_LOGIN_ACCOUNT_KEY = "judge-login"
+JUDGE_USER_KEYS: dict[JudgeRole, str] = {
+    "requester": "requester_a",
+    "manager": "lab_manager",
+    "auditor": "judge_auditor",
+}
+JUDGE_ROLES: tuple[JudgeRole, ...] = ("requester", "manager", "auditor")
 NEW_PASSWORD_ROUNDS = 600_000
 DUMMY_PASSWORD_HASH = hash_password(
     "invalid-login-timing-placeholder", NEW_PASSWORD_ROUNDS
@@ -160,6 +174,64 @@ def demo_login(
     return DemoLoginResponse(user=UserRead.model_validate(user))
 
 
+@router.post("/judge-login", response_model=DemoLoginResponse)
+def judge_login(
+    payload: JudgeLoginRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> DemoLoginResponse:
+    if not request.app.state.judge_login_enabled:
+        raise_api_error("not_found", "Not Found", 404)
+    user = _judge_user(session, payload.role)
+    _record_judge_call(request, session)
+    request.session.clear()
+    request.session["user_id"] = user.id
+    profile = session.get(AccountProfile, user.id)
+    request.session["auth_version"] = profile.auth_version if profile else 0
+    request.session["judge_mode"] = True
+    record_event(
+        session,
+        user,
+        "auth",
+        user.id,
+        "auth.judge_login",
+        request.state.request_id,
+        after={"judge_role": payload.role},
+    )
+    session.commit()
+    return DemoLoginResponse(user=UserRead.model_validate(user))
+
+
+@router.post("/judge-switch", response_model=DemoLoginResponse)
+def judge_switch(
+    payload: JudgeLoginRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> DemoLoginResponse:
+    if not request.app.state.judge_login_enabled:
+        raise_api_error("not_found", "Not Found", 404)
+    if request.session.get("judge_mode") is not True:
+        raise_api_error("forbidden", "Role switching is available only in judge mode.", 403)
+    user = _judge_user(session, payload.role)
+    _record_judge_call(request, session)
+    request.session.clear()
+    request.session["user_id"] = user.id
+    profile = session.get(AccountProfile, user.id)
+    request.session["auth_version"] = profile.auth_version if profile else 0
+    request.session["judge_mode"] = True
+    record_event(
+        session,
+        user,
+        "auth",
+        user.id,
+        "auth.judge_switch",
+        request.state.request_id,
+        after={"judge_role": payload.role},
+    )
+    session.commit()
+    return DemoLoginResponse(user=UserRead.model_validate(user))
+
+
 @router.post("/register", response_model=DemoLoginResponse, status_code=201)
 def register(
     payload: AccountRegister,
@@ -268,9 +340,20 @@ def login(
     return DemoLoginResponse(user=UserRead.model_validate(user))
 
 
-@router.get("/session", response_model=DemoLoginResponse)
-def current_session(user: User = Depends(get_current_user)) -> DemoLoginResponse:
-    return DemoLoginResponse(user=UserRead.model_validate(user))
+@router.get("/session", response_model=AuthSessionRead)
+def current_session(
+    request: Request,
+    user: User | None = Depends(get_optional_user),
+) -> AuthSessionRead:
+    enabled = request.app.state.judge_login_enabled
+    if user is None and not enabled:
+        raise_api_error("forbidden", "Authentication is required.", 401)
+    return AuthSessionRead(
+        user=UserRead.model_validate(user) if user else None,
+        judge_mode=request.session.get("judge_mode") is True,
+        judge_login_available=enabled,
+        available_judge_roles=list(JUDGE_ROLES) if enabled else [],
+    )
 
 
 @router.post("/logout")
@@ -285,3 +368,51 @@ def _rate_key(secret_key: str, value: str) -> str:
     return hmac.new(
         secret_key.encode("utf-8"), value.encode("utf-8"), hashlib.sha256
     ).hexdigest()
+
+
+def _judge_user(session: Session, role: JudgeRole) -> User:
+    user = session.get(User, DEMO_USER_IDS[JUDGE_USER_KEYS[role]])
+    if (
+        user is None
+        or not user.is_demo
+        or user.role
+        != {"requester": "requester", "manager": "lab_manager", "auditor": "auditor"}[
+            role
+        ]
+    ):
+        raise_api_error("invalid_state", "The seeded judge account is unavailable.", 503)
+    return user
+
+
+def _record_judge_call(request: Request, session: Session) -> None:
+    now = datetime.now(timezone.utc)
+    client_ip = request.client.host if request.client else "unknown"
+    ip_key = _rate_key(request.app.state.secret_key, client_ip)
+    attempt = LoginAttempt(
+        id=str(uuid4()),
+        account_key=_rate_key(
+            request.app.state.secret_key, JUDGE_LOGIN_ACCOUNT_KEY
+        ),
+        ip_key=ip_key,
+        failed_at=now,
+    )
+    session.add(attempt)
+    session.flush()
+    cutoff = now - JUDGE_LOGIN_WINDOW
+    session.execute(delete(LoginAttempt).where(LoginAttempt.failed_at < cutoff))
+    call_count = session.scalar(
+        select(func.count())
+        .select_from(LoginAttempt)
+        .where(
+            LoginAttempt.account_key == attempt.account_key,
+            LoginAttempt.ip_key == ip_key,
+            LoginAttempt.failed_at >= cutoff,
+        )
+    ) or 0
+    if call_count > JUDGE_LOGIN_LIMIT:
+        session.commit()
+        raise_api_error(
+            "rate_limited",
+            "Too many judge sign-in requests. Try again in 10 minutes.",
+            429,
+        )

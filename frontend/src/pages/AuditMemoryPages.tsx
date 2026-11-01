@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
-import { Badge, Button, Input } from "../components/UI";
+import { Badge, Button, Input, Table } from "../components/UI";
 import { EmptyState, ErrorState, Loading } from "../components/Feedback";
 import { PageHeading, StatusBadge } from "../components/PageHeading";
 import { formatIST, istDateEndToISO, istInputToISO } from "../lib/format";
@@ -499,13 +499,20 @@ export function AdminUsersPage() {
       {loading && <Loading label="Loading users…" />}
       {error !== null && <ErrorState error={error} />}
       {!loading && error === null && users.length === 0 && <EmptyState>No user records were returned.</EmptyState>}
-      {!loading && error === null && users.length > 0 && <div className="table-scroll"><table className="data-table">
-        <thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Organization</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Data</th></tr></thead>
-        <tbody>{users.map((user) => <tr key={user.id}>
-          <th scope="row">{user.full_name}</th><td>{user.email ?? "—"}</td><td>{user.organization_name ?? "—"}</td>
-          <td>{user.role.replaceAll("_", " ")}</td><td>{user.status}</td><td>{user.is_demo ? <Badge>Sample data</Badge> : "Live account"}</td>
-        </tr>)}</tbody>
-      </table></div>}
+      {!loading && error === null && users.length > 0 && (
+        <Table
+          caption="User accounts and access status"
+          headers={["Name", "Email", "Organization", "Role", "Status", "Data"]}
+          rows={users.map((user) => [
+            <strong key="name">{user.full_name}</strong>,
+            user.email ?? "—",
+            user.organization_name ?? "—",
+            user.role.replaceAll("_", " "),
+            <StatusBadge key="status" value={user.status} />,
+            user.is_demo ? <Badge key="demo">Sample data</Badge> : "Live account",
+          ])}
+        />
+      )}
     </>
   );
 }

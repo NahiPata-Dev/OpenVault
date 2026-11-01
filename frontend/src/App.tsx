@@ -10,12 +10,12 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { api } from "./api/client";
-import type { Role, User } from "./api/types";
+import type { JudgeRole, Role, User } from "./api/types";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { ErrorState } from "./components/Feedback";
 import { BookingAssistant } from "./components/BookingAssistant";
-import { PageHeading } from "./components/PageHeading";
-import { Alert, Badge, Button, Card, EmptyState } from "./components/UI";
+import { PageHeading, StatusBadge } from "./components/PageHeading";
+import { Alert, Badge, Button, Card, EmptyState, StatCard } from "./components/UI";
 import { formatIST } from "./lib/format";
 import {
   LandingPage,
@@ -46,7 +46,7 @@ import {
 
 const roleLabels: Record<Role, string> = {
   requester: "Requester",
-  lab_manager: "Resource owner",
+  lab_manager: "Lab manager",
   institution_admin: "Institution admin",
   auditor: "Judge auditor",
 };
@@ -164,11 +164,13 @@ function Breadcrumbs() {
 
 function AppHeader({ user }: { user: User }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const { signOut } = useAuth();
+  const { judgeMode, signOut, switchJudgeRole } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const moreMenuRef = useRef<HTMLDetailsElement>(null);
   const [logoutError, setLogoutError] = useState<unknown>(null);
+  const [switchError, setSwitchError] = useState<unknown>(null);
+  const [switchPending, setSwitchPending] = useState(false);
   const navigationByRole: Record<Role, { primary: { path: string; label: string }[]; more: { path: string; label: string }[] }> = {
     requester: {
       primary: [
@@ -229,6 +231,19 @@ function AppHeader({ user }: { user: User }) {
     }
   }
 
+  async function switchRole(role: JudgeRole) {
+    setSwitchPending(true);
+    setSwitchError(null);
+    try {
+      await switchJudgeRole(role);
+      navigate("/dashboard", { replace: true });
+    } catch (error) {
+      setSwitchError(error);
+    } finally {
+      setSwitchPending(false);
+    }
+  }
+
   useEffect(() => {
     setMenuOpen(false);
     if (moreMenuRef.current) moreMenuRef.current.open = false;
@@ -262,6 +277,30 @@ function AppHeader({ user }: { user: User }) {
         </nav>
         <div className="header-actions">
           <NotificationBell role={user.role} />
+          {judgeMode && (
+            <details className="judge-switch-menu">
+              <summary>Switch role</summary>
+              <div className="judge-switch-panel">
+                <strong>Judge role</strong>
+                {([
+                  ["requester", "Requester"],
+                  ["manager", "Lab manager"],
+                  ["auditor", "Auditor"],
+                ] as const).map(([role, label]) => (
+                  <Button
+                    key={role}
+                    type="button"
+                    variant="quiet"
+                    disabled={switchPending}
+                    onClick={() => void switchRole(role)}
+                  >
+                    {label}
+                  </Button>
+                ))}
+                {switchError !== null && <ErrorState error={switchError} />}
+              </div>
+            </details>
+          )}
           <details className="user-menu">
             <summary><span className="avatar" aria-hidden="true">{user.display_name.slice(0, 1).toUpperCase()}</span><span className="user-menu-name">{user.display_name}</span><span aria-hidden="true">⌄</span></summary>
             <div className="user-menu-panel">
@@ -275,6 +314,172 @@ function AppHeader({ user }: { user: User }) {
       <div className="workspace-subheader"><Breadcrumbs /></div>
       {logoutError !== null && <div className="page-content"><ErrorState error={logoutError} /></div>}
     </>
+  );
+}
+
+interface JudgeGuideRequest {
+  request: { status: string };
+  decision?: { outcome: string } | null;
+  booking?: { status: string } | null;
+  access_contract?: { status: string } | null;
+}
+
+interface JudgeGuideFacts {
+  resources: number;
+  requests: JudgeGuideRequest[];
+  managerRequests: { request: { status: string } }[];
+  auditActions: string[];
+  openIncidents: number;
+}
+
+function JudgeGuide({ role }: { role: Role }) {
+  const navigate = useNavigate();
+  const [facts, setFacts] = useState<JudgeGuideFacts | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    setError(null);
+    const load = async () => {
+      try {
+        const [resources, audit] = await Promise.all([
+          api.get<{ total: number }>("/resources"),
+          api.get<{ items: { action: string }[] }>("/audit"),
+        ]);
+        let requests: JudgeGuideRequest[] = [];
+        let managerRequests: JudgeGuideFacts["managerRequests"] = [];
+        let openIncidents = 0;
+        if (role === "requester") {
+          const history = await api.get<{ items: JudgeGuideRequest[] }>("/requests/mine");
+          requests = history.items;
+        } else if (role === "lab_manager") {
+          const [queue, dashboard] = await Promise.all([
+            api.get<{ items: JudgeGuideFacts["managerRequests"] }>("/manager/requests"),
+            api.get<{ summary: { open_incidents: number } }>("/dashboard/manager"),
+          ]);
+          managerRequests = queue.items;
+          openIncidents = dashboard.summary.open_incidents;
+        }
+        if (active) {
+          setFacts({
+            resources: resources.total,
+            requests,
+            managerRequests,
+            auditActions: audit.items.map((item) => item.action),
+            openIncidents,
+          });
+        }
+      } catch (loadError) {
+        if (active) setError(loadError);
+      }
+    };
+    void load();
+    return () => { active = false; };
+  }, [role, reloadKey]);
+
+  const actions = facts?.auditActions ?? [];
+  const requestRecords = facts?.requests ?? [];
+  const managerRecords = facts?.managerRequests ?? [];
+  const hasRequests = requestRecords.length > 0
+    || managerRecords.length > 0
+    || actions.some((action) => action.startsWith("request."));
+  const hasBooking = requestRecords.some((item) => item.booking !== null && item.booking !== undefined)
+    || actions.some((action) => action === "booking.confirmed");
+  const checkedIn = requestRecords.some((item) =>
+    ["CHECKED_IN", "CLOSED"].includes(item.booking?.status ?? ""),
+  ) || actions.some((action) => ["booking.checked_in", "booking.late_checked_in"].includes(action));
+  const checkedOut = requestRecords.some((item) => item.booking?.status === "CLOSED")
+    || actions.some((action) => ["booking.checked_out", "booking.closed"].includes(action));
+  const reportedIncident = requestRecords.some((item) => item.request.status === "INCIDENT_REVIEW")
+    || (facts?.openIncidents ?? 0) > 0
+    || actions.some((action) => action.startsWith("incident."));
+  const resolvedIncident = actions.some((action) =>
+    ["incident.resolved", "incident.dismissed"].includes(action),
+  );
+  const completed = [
+    (facts?.resources ?? 0) > 0,
+    false,
+    hasRequests,
+    requestRecords.some((item) => item.decision?.outcome === "approved") || hasBooking,
+    requestRecords.some((item) => item.access_contract !== null && item.access_contract !== undefined)
+      || actions.some((action) => action === "booking.confirmed"),
+    checkedIn,
+    checkedOut,
+    reportedIncident,
+    resolvedIncident,
+    actions.length > 0,
+  ];
+  const steps = [
+    { title: "Find a resource", instruction: "Browse the sample catalog.", path: "/resources" },
+    { title: "Check requirements", instruction: "Review training, rules, and availability.", path: "/resources" },
+    {
+      title: role === "requester" ? "Submit a request" : "Review requests",
+      instruction: role === "requester" ? "Choose a resource and submit your purpose." : "Open the manager queue to review requests.",
+      path: role === "requester" ? "/resources" : role === "lab_manager" ? "/manager/requests" : "/audit",
+    },
+    {
+      title: role === "lab_manager" ? "Record a decision" : "Review the decision",
+      instruction: "An authorized manager records the outcome.",
+      path: role === "lab_manager" ? "/manager/requests" : role === "requester" ? "/requests" : "/audit",
+    },
+    {
+      title: "Review the Access Contract",
+      instruction: "Read the session conditions for a confirmed booking.",
+      path: role === "requester" ? "/requests" : role === "lab_manager" ? "/manager/sessions" : "/audit",
+    },
+    {
+      title: "Check in",
+      instruction: "Complete the condition checklist at arrival.",
+      path: role === "requester" ? "/bookings" : role === "lab_manager" ? "/manager/sessions" : "/audit",
+    },
+    {
+      title: "Check out",
+      instruction: "Record the condition and return shared items.",
+      path: role === "requester" ? "/bookings" : role === "lab_manager" ? "/manager/sessions" : "/audit",
+    },
+    {
+      title: "Report an incident",
+      instruction: "Record issues for human review without assigning blame.",
+      path: role === "lab_manager" ? "/manager/incidents" : role === "requester" ? "/bookings" : "/audit",
+    },
+    {
+      title: "Resolve an incident",
+      instruction: "Review and record the manager's resolution.",
+      path: role === "lab_manager" ? "/manager/incidents" : role === "requester" ? "/requests" : "/audit",
+    },
+    { title: "Review the audit trail", instruction: "Inspect the recorded lifecycle events.", path: "/audit" },
+  ];
+
+  return (
+    <details className="judge-guide">
+      <summary><span>Judge guide</span><small>10-step request-to-return walkthrough</small></summary>
+      <ol className="judge-guide-steps">
+        {steps.map((step, index) => (
+          <li key={step.title} className={completed[index] ? "judge-guide-complete" : ""}>
+            <span className="judge-guide-check" aria-label={completed[index] ? "Completed from saved records" : "Not yet recorded"}>
+              {completed[index] ? "✓" : String(index + 1)}
+            </span>
+            <div className="judge-guide-copy">
+              <strong>{step.title}</strong>
+              <p>{step.instruction}</p>
+            </div>
+            <Button type="button" variant="secondary" onClick={() => navigate(step.path)}>
+              Open
+            </Button>
+          </li>
+        ))}
+      </ol>
+      {error !== null && (
+        <div className="judge-guide-error">
+          <ErrorState error={error} />
+          <Button type="button" variant="secondary" onClick={() => setReloadKey((key) => key + 1)}>
+            Retry guide data
+          </Button>
+        </div>
+      )}
+      <p className="helper">Completion ticks reflect saved requests, bookings, incidents, and audit events. The app does not record page views.</p>
+    </details>
   );
 }
 
@@ -310,8 +515,15 @@ interface DashboardRequestRecord {
 }
 
 interface AdminDashboardState {
+  applications: number;
   pendingApplications: number;
   users: number;
+}
+
+interface AuditorResourceSummary {
+  total: number;
+  active: number;
+  needsReview: number;
 }
 
 interface DashboardAction {
@@ -411,9 +623,10 @@ function DashboardPage({ user }: { user: User }) {
   const [requests, setRequests] = useState<DashboardRequestRecord[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [adminData, setAdminData] = useState<AdminDashboardState | null>(null);
-  const [auditorResourceCount, setAuditorResourceCount] = useState<number | null>(null);
+  const [auditorResources, setAuditorResources] = useState<AuditorResourceSummary | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
+  const [loadVersion, setLoadVersion] = useState(0);
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -436,14 +649,22 @@ function DashboardPage({ user }: { user: User }) {
               api.get<{ status: string }[]>("/admin/owner-applications"),
               api.get<unknown[]>("/admin/users"),
             ]).then(([applications, users]) => active && setAdminData({
+              applications: applications.length,
               pendingApplications: applications.filter((application) => application.status === "pending").length,
               users: users.length,
             }))
-          : api.get<{ total: number }>("/resources").then((resources) => active && setAuditorResourceCount(resources.total));
+          : api.get<{
+              total: number;
+              items: { status: string; readiness: { ready: boolean } }[];
+            }>("/resources").then((resources) => active && setAuditorResources({
+              total: resources.total,
+              active: resources.items.filter((resource) => resource.status === "active").length,
+              needsReview: resources.items.filter((resource) => !resource.readiness.ready).length,
+            }));
     void loads.catch((loadError: unknown) => active && setError(loadError))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [user.role]);
+  }, [user.role, loadVersion]);
   const upcomingBookings = requests
     .filter((item) => item.booking && ["CONFIRMED", "CHECKED_IN", "NO_SHOW"].includes(item.booking.status) && new Date(item.booking.end_at).getTime() >= Date.now())
     .sort((a, b) => new Date(a.booking!.start_at).getTime() - new Date(b.booking!.start_at).getTime())
@@ -539,7 +760,7 @@ function DashboardPage({ user }: { user: User }) {
         title={`Good to see you, ${user.display_name.split(" ")[0]}`}
         description="Choose a task to get started."
       />
-      {error !== null && <ErrorState error={error} />}
+      {error !== null && <ErrorState error={error} onRetry={() => setLoadVersion((version) => version + 1)} />}
       <div className="dashboard-action-grid">
         {actionsByRole[user.role].map((action, index) => action.assistant ? (
           <button
@@ -586,10 +807,10 @@ function DashboardPage({ user }: { user: User }) {
           </Link>
         </section>
       )}
-      {!loading && user.role === "auditor" && auditorResourceCount !== null && (
+      {!loading && user.role === "auditor" && auditorResources !== null && (
         <section className="what-next-card" aria-labelledby="what-next-title">
-          <div><p className="eyebrow">WHAT TO DO NEXT</p><h2 id="what-next-title">{auditorResourceCount > 0 ? "Review the resource audit trail" : "No resources are available to inspect"}</h2><p>{auditorResourceCount} resource{auditorResourceCount === 1 ? "" : "s"} are available in your read-only catalog.</p></div>
-          <Link className="button button-primary" to={auditorResourceCount > 0 ? "/audit" : "/resources"}>{auditorResourceCount > 0 ? "Open audit timeline" : "Browse resources"}</Link>
+          <div><p className="eyebrow">WHAT TO DO NEXT</p><h2 id="what-next-title">{auditorResources.total > 0 ? "Review the resource audit trail" : "No resources are available to inspect"}</h2><p>{auditorResources.total} resource{auditorResources.total === 1 ? "" : "s"} are available in your read-only catalog.</p></div>
+          <Link className="button button-primary" to={auditorResources.total > 0 ? "/audit" : "/resources"}>{auditorResources.total > 0 ? "Open audit timeline" : "Browse resources"}</Link>
         </section>
       )}
       {loading && <div className="skeleton-grid dashboard-loading" aria-label="Loading dashboard"><span className="skeleton skeleton-metric" /><span className="skeleton skeleton-metric" /><span className="skeleton skeleton-metric" /></div>}
@@ -597,7 +818,7 @@ function DashboardPage({ user }: { user: User }) {
         <>
           <div className="dashboard-metrics">
             {Object.entries(data.summary).map(([key, value]) => (
-              <Card className="dashboard-metric" key={key}><p>{key.replaceAll("_", " ")}</p><strong>{value}</strong></Card>
+              <StatCard label={key.replaceAll("_", " ")} value={value} key={key} />
             ))}
           </div>
           {user.role === "requester" ? (
@@ -612,7 +833,7 @@ function DashboardPage({ user }: { user: User }) {
               </Card>
               <Card className="dashboard-up-next">
                 <h2>Training expiring soon ({data.summary.expiring_training ?? 0})</h2>
-                {expiringTraining.length ? <ul className="up-next-list">{expiringTraining.map((item) => <li key={item.id}><span className="up-next-mark" aria-hidden="true">•</span><div><strong>{item.title}</strong><p>{item.at ? formatIST(item.at) : "Expiry date not provided"}</p></div><Badge>{item.status.replaceAll("_", " ")}</Badge></li>)}</ul> : (data.summary.expiring_training ?? 0) > 0 ? <p className="helper">The dashboard reports {data.summary.expiring_training} expiring records, but did not include their details in its five next items.</p> : <EmptyState title="No upcoming expiries">The dashboard reports no expiring training in the current window.</EmptyState>}
+                {expiringTraining.length ? <ul className="up-next-list">{expiringTraining.map((item) => <li key={item.id}><span className="up-next-mark" aria-hidden="true">•</span><div><strong>{item.title}</strong><p>{item.at ? formatIST(item.at) : "Expiry date not provided"}</p></div><StatusBadge value={item.status} /></li>)}</ul> : (data.summary.expiring_training ?? 0) > 0 ? <p className="helper">The dashboard reports {data.summary.expiring_training} expiring records, but did not include their details in its five next items.</p> : <EmptyState title="No upcoming expiries">The dashboard reports no expiring training in the current window.</EmptyState>}
               </Card>
               <Card className="dashboard-up-next">
                 <div className="card-title-row"><h2>Notifications</h2><span>{notifications.filter((item) => !item.read_at).length} unread</span></div>
@@ -632,6 +853,20 @@ function DashboardPage({ user }: { user: User }) {
             </div>
           )}
         </>
+      )}
+      {!loading && user.role === "institution_admin" && adminData && (
+        <div className="dashboard-metrics">
+          <StatCard label="Accounts" value={adminData.users} />
+          <StatCard label="Pending owner applications" value={adminData.pendingApplications} />
+          <StatCard label="Owner applications" value={adminData.applications} />
+        </div>
+      )}
+      {!loading && user.role === "auditor" && auditorResources && (
+        <div className="dashboard-metrics">
+          <StatCard label="Resources in catalog" value={auditorResources.total} />
+          <StatCard label="Active resources" value={auditorResources.active} />
+          <StatCard label="Resources needing review" value={auditorResources.needsReview} detail="Catalog readiness checks only" />
+        </div>
       )}
     </div>
   );
@@ -673,7 +908,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, BoundaryState> {
 }
 
 function ProtectedLayout() {
-  const { user, loading } = useAuth();
+  const { user, loading, judgeMode } = useAuth();
   const location = useLocation();
   if (loading) return <div className="page-loading"><span className="skeleton skeleton-block" role="status" aria-label="Checking your session" /></div>;
   if (!user) {
@@ -683,6 +918,7 @@ function ProtectedLayout() {
   return (
     <div className="workspace">
       <AppHeader user={user} />
+      {judgeMode && <JudgeGuide role={user.role} />}
       <Routes>
         <Route path="/dashboard" element={<DashboardPage user={user} />} />
         <Route path="/resources" element={<ResourcesPage />} />
@@ -725,11 +961,25 @@ function RouterView() {
   );
 }
 
+function AppContent() {
+  const { backendWaking } = useAuth();
+  return (
+    <>
+      {backendWaking && (
+        <div className="backend-waking-notice" role="status" aria-live="polite">
+          The demo server is waking up, this can take up to a minute.
+        </div>
+      )}
+      <ErrorBoundary><RouterView /></ErrorBoundary>
+    </>
+  );
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <ErrorBoundary><RouterView /></ErrorBoundary>
+        <AppContent />
       </AuthProvider>
     </BrowserRouter>
   );

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Box, Building2, Camera, Cpu, FlaskConical, Printer, Wrench } from "lucide-react";
 import { api } from "../api/client";
 import type { Role } from "../api/types";
 import { Badge, Stepper } from "../components/UI";
@@ -129,19 +130,20 @@ interface CatalogFilters {
   sort: string;
 }
 
-const categoryIcons: Record<string, string> = {
-  equipment: "◈",
-  "3d printing": "⌘",
-  electronics: "⌁",
-  space: "⌂",
-  imaging: "◎",
+const categoryIcons = {
+  equipment: Box,
+  "3d printing": Printer,
+  electronics: Cpu,
+  space: Building2,
+  imaging: Camera,
+  laboratory: FlaskConical,
 };
 
 function ResourcePlaceholder({ category }: { category: string }) {
-  const icon = categoryIcons[category.toLowerCase()] ?? "◇";
+  const Icon = categoryIcons[category.toLowerCase() as keyof typeof categoryIcons] ?? Wrench;
   return (
     <div className="resource-image-placeholder" aria-label={`${category} image placeholder`} role="img">
-      <span aria-hidden="true">{icon}</span>
+      <Icon size={34} strokeWidth={1.7} aria-hidden="true" />
       <small>{statusLabel(category)} resource</small>
     </div>
   );
@@ -335,7 +337,17 @@ export function ResourcesPage() {
           {total} {total === 1 ? "resource" : "resources"} found
         </p>
       )}
-      {!loading && error === null && items.length === 0 && <EmptyState>No resources match these filters.</EmptyState>}
+      {!loading && error === null && items.length === 0 && (
+        <EmptyState
+          title="No resources match these filters"
+          action={<button className="button button-secondary" type="button" onClick={() => {
+            setFilters({ ...initialFilters, city: "" });
+            setAppliedFilters({ ...initialFilters, city: "" });
+          }}>Clear filters</button>}
+        >
+          Try a broader search or clear the selected filters.
+        </EmptyState>
+      )}
       {!loading && error === null && items.length > 0 && (
         <>
           <div className="resource-grid">
@@ -346,13 +358,19 @@ export function ResourcesPage() {
                   <div><p className="eyebrow">{statusLabel(resource.category)}</p><h2>{resource.name}</h2></div>
                   <StatusBadge value="" ready={resource.readiness.ready} />
                 </div>
-                <Badge>{statusLabel(resource.status)}</Badge>
+                <StatusBadge value={resource.status} />
                 {resource.short_summary.toLowerCase().startsWith("sample data") && <Badge>Sample data</Badge>}
                 <p className="resource-summary">{resource.short_summary}</p>
                 <p className="resource-institution">{resource.organization_name}</p>
                 <p className="muted resource-location">
                   {[resource.area, resource.city].filter(Boolean).join(", ") || resource.location}
                 </p>
+                <div className="resource-bookability" aria-label={`Can I book this? ${resource.status === "active" && resource.readiness.ready ? "Time-specific checks still apply" : "Review requirements before requesting"}`}>
+                  <strong>Can I book this?</strong>
+                  <span>{resource.status === "active" && resource.readiness.ready
+                    ? "Ready to request; time-specific checks still apply."
+                    : "Review the requirements and blockers before requesting."}</span>
+                </div>
                 <div className="tag-list">
                   <Badge tone={resource.supervision_required ? "warning" : "neutral"}>
                     {resource.supervision_required ? "Supervision required" : "No supervision required"}
@@ -548,7 +566,7 @@ export function ResourceDetailPage({ role }: { role: Role }) {
           </div>
           <div className="resource-summary-badges">
             {resource.is_demo && <Badge>Sample data</Badge>}
-            <Badge>{statusLabel(resource.status)}</Badge>
+            <StatusBadge value={resource.status} />
           </div>
         </div>
         <div className="resource-summary-bottom">

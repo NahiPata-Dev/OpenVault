@@ -43,9 +43,19 @@ Open the frontend URL printed by Vite (by default,
 `http://127.0.0.1:8000`. Configure `VITE_API_URL` if the API uses another
 origin. The app uses the backend API; it does not use a local mock catalog.
 
-The demo accounts and shared demo password are documented in
-[`backend/README.md`](./backend/README.md). Use
-[`docs/MANUAL_TEST.md`](./docs/MANUAL_TEST.md) for the manual sample journeys.
+## Judge access
+
+When `JUDGE_LOGIN_ENABLED=true`, the login page shows a **Judge access** panel
+with one-click Requester, Lab manager, and Auditor entry. Each button signs in
+one fixed fictional seeded sample account. Judge sessions cannot access
+registered users, institution-admin functions, or destructive demo reset
+actions. The feature is disabled by default and is an evaluation shortcut:
+keep it disabled in real deployments. The usual email/password sign-in and
+registration remain available.
+
+See [`docs/MANUAL_TEST.md`](./docs/MANUAL_TEST.md) for the sample journeys and
+[`docs/SECURITY_PRIVACY_FAIRNESS.md`](./docs/SECURITY_PRIVACY_FAIRNESS.md) for
+the evaluation boundary.
 
 ## Build and tests
 

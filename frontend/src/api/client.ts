@@ -72,6 +72,8 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     "/auth/login",
     "/auth/register",
     "/auth/demo-login",
+    "/auth/judge-login",
+    "/auth/judge-switch",
   ].includes(path);
   if (response.status === 401 && !isPublicAuthRequest) {
     if (window.location.pathname !== "/login") {
@@ -97,6 +99,13 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
 export const api = {
   get: <T>(path: string) => request<T>(path),
+  getWithTimeout: <T>(path: string, timeoutMs: number) => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+    return request<T>(path, { signal: controller.signal }).finally(() =>
+      window.clearTimeout(timeout),
+    );
+  },
   post: <T>(path: string, body?: unknown, headers?: HeadersInit) =>
     request<T>(path, { method: "POST", body, headers }),
   patch: <T>(path: string, body: unknown) =>

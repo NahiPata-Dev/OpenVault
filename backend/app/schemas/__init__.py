@@ -37,6 +37,20 @@ class DemoLoginResponse(APIModel):
     user: UserRead
 
 
+JudgeRole = Literal["requester", "manager", "auditor"]
+
+
+class JudgeLoginRequest(APIModel):
+    role: JudgeRole
+
+
+class AuthSessionRead(APIModel):
+    user: UserRead | None
+    judge_mode: bool
+    judge_login_available: bool
+    available_judge_roles: list[JudgeRole]
+
+
 class AccountRegister(APIModel):
     full_name: str = Field(min_length=1, max_length=120)
     email: str = Field(min_length=3, max_length=254)

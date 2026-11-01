@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { DemoAccount } from "../api/types";
-import { Badge } from "../components/UI";
+import { Badge, Button, Modal, Toast, useToast } from "../components/UI";
 import { EmptyState, ErrorState, Loading } from "../components/Feedback";
 import { PageHeading, StatusBadge } from "../components/PageHeading";
 import { formatIST, istInputToISO, statusLabel } from "../lib/format";
@@ -482,6 +482,8 @@ export function IncidentDetailPage() {
   const [saved, setSaved] = useState(false);
   const [response, setResponse] = useState("");
   const [reviewReason, setReviewReason] = useState("");
+  const [resolveConfirmationOpen, setResolveConfirmationOpen] = useState(false);
+  const toast = useToast();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -497,14 +499,15 @@ export function IncidentDetailPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  async function resolve(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function resolve() {
     setPending(true);
     setActionError(null);
     setSaved(false);
     try {
       await api.post(`/incidents/${incidentId}/resolve`, { outcome, rationale: rationale.trim() });
       setSaved(true);
+      setResolveConfirmationOpen(false);
+      toast.show("Incident resolution recorded.");
       await load();
     } catch (resolveError) {
       setActionError(resolveError);
@@ -595,7 +598,10 @@ export function IncidentDetailPage() {
               <button className="button button-secondary" type="button" disabled={pending || !reviewReason.trim()} onClick={() => void review("information_requested")}>Request information</button>
             </div>
           </form>
-          {incident.status === "UNDER_REVIEW" && <form className="decision-form" onSubmit={(event) => void resolve(event)}>
+          {incident.status === "UNDER_REVIEW" && <form className="decision-form" onSubmit={(event) => {
+            event.preventDefault();
+            setResolveConfirmationOpen(true);
+          }}>
             <h3>Resolve incident</h3>
             <label className="field-label" htmlFor="incident-outcome">Outcome</label>
             <select id="incident-outcome" className="select" value={outcome} onChange={(event) => setOutcome(event.target.value)} disabled={pending}>
@@ -606,7 +612,7 @@ export function IncidentDetailPage() {
             <textarea id="incident-rationale" className="textarea" required maxLength={2000} value={rationale} onChange={(event) => setRationale(event.target.value)} disabled={pending} />
             {actionError !== null && <ErrorState error={actionError} />}
             {saved && <p className="result-panel result-positive" role="status">Resolution recorded by the backend.</p>}
-            <button className="button button-primary mt-3" type="submit" disabled={pending || !rationale.trim()}>{pending ? "Saving…" : "Resolve incident"}</button>
+            <button className="button button-primary mt-3" type="submit" disabled={pending || !rationale.trim()}>Resolve incident</button>
           </form>}
           {incident.status !== "UNDER_REVIEW" && <p className="helper">Move this incident to “Under review” before recording a resolution or dismissal.</p>}
           </>
@@ -614,6 +620,19 @@ export function IncidentDetailPage() {
         {actionError !== null && <ErrorState error={actionError} />}
         <p className="helper">Incident handling records facts and a human rationale. Nothing is penalized automatically.</p>
       </section>
+      <Modal open={resolveConfirmationOpen} title="Confirm incident resolution" onClose={() => {
+        if (!pending) setResolveConfirmationOpen(false);
+      }}>
+        <p>Record this outcome and rationale in the incident history?</p>
+        <p><strong>Outcome:</strong> {statusLabel(outcome)}</p>
+        <blockquote>{rationale}</blockquote>
+        {actionError !== null && <ErrorState error={actionError} />}
+        <div className="card-actions">
+          <Button type="button" disabled={pending} onClick={() => void resolve()}>{pending ? "Saving…" : "Confirm resolution"}</Button>
+          <Button type="button" variant="secondary" disabled={pending} onClick={() => setResolveConfirmationOpen(false)}>Go back</Button>
+        </div>
+      </Modal>
+      <Toast message={toast.message} onDismiss={toast.dismiss} />
     </>
   );
 }
