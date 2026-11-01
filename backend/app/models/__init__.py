@@ -113,6 +113,17 @@ class LoginAttempt(Base):
     failed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class DiscoveryFeedback(Base):
+    __tablename__ = "discovery_feedback"
+    __table_args__ = (Index("ix_discovery_feedback_user_created", "user_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    is_helpful: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
 class Resource(Base):
     __tablename__ = "resources"
     __table_args__ = (

@@ -34,7 +34,7 @@ def account_payload(user: User, profile: AccountProfile | None) -> dict:
     return {
         "id": user.id,
         "full_name": profile.full_name if profile else user.display_name,
-        "email": profile.email if profile else None,
+        "email": profile.email if profile and not user.is_demo else None,
         "organization_name": profile.organization_name if profile else None,
         "phone": profile.phone if profile else None,
         "intended_use": profile.intended_use if profile else None,

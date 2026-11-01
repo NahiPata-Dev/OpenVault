@@ -70,6 +70,7 @@ export function ManagerQueuePage() {
   const [actionError, setActionError] = useState<unknown>(null);
   const [statusFilter, setStatusFilter] = useState("all");
   const [resourceFilter, setResourceFilter] = useState("all");
+  const [sortOrder, setSortOrder] = useState("newest");
   const [confirming, setConfirming] = useState<{ requestId: string; outcome: string } | null>(null);
 
   const load = useCallback(async () => {
@@ -128,7 +129,10 @@ export function ManagerQueuePage() {
   const filteredItems = items.filter(({ request }) =>
     (statusFilter === "all" || request.status === statusFilter)
     && (resourceFilter === "all" || request.resource_id === resourceFilter),
-  );
+  ).sort((left, right) => {
+    const direction = sortOrder === "oldest" ? 1 : -1;
+    return direction * (new Date(left.request.created_at).getTime() - new Date(right.request.created_at).getTime());
+  });
 
   return (
     <>
@@ -138,14 +142,25 @@ export function ManagerQueuePage() {
       />
       {actionError !== null && <ErrorState error={actionError} />}
       <section className="panel queue-filters" aria-label="Request queue filters">
-        <label className="field-label" htmlFor="queue-status">Status</label>
-        <select id="queue-status" className="select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-          <option value="all">All statuses</option><option value="PENDING_REVIEW">Pending review</option><option value="WAITLISTED">Waitlisted</option><option value="APPROVED">Approved</option><option value="REJECTED">Rejected</option>
-        </select>
-        <label className="field-label" htmlFor="queue-resource">Resource</label>
-        <select id="queue-resource" className="select" value={resourceFilter} onChange={(event) => setResourceFilter(event.target.value)}>
-          <option value="all">All resources</option>{resourceIds.map((id) => <option value={id} key={id}>{resources.get(id) ?? id}</option>)}
-        </select>
+        <div>
+          <label className="field-label" htmlFor="queue-status">Status</label>
+          <select id="queue-status" className="select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            <option value="all">All statuses</option><option value="PENDING_REVIEW">Pending review</option><option value="WAITLISTED">Waitlisted</option><option value="APPROVED">Approved</option><option value="REJECTED">Rejected</option>
+          </select>
+        </div>
+        <div>
+          <label className="field-label" htmlFor="queue-resource">Resource</label>
+          <select id="queue-resource" className="select" value={resourceFilter} onChange={(event) => setResourceFilter(event.target.value)}>
+            <option value="all">All resources</option>{resourceIds.map((id) => <option value={id} key={id}>{resources.get(id) ?? id}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="field-label" htmlFor="queue-sort">Sort by submission date</label>
+          <select id="queue-sort" className="select" value={sortOrder} onChange={(event) => setSortOrder(event.target.value)}>
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+          </select>
+        </div>
       </section>
       {loading && <Loading label="Loading the manager queue…" />}
       {error !== null && <ErrorState error={error} />}

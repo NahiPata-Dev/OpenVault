@@ -16,6 +16,18 @@ interface TimelineEvent {
   event: string;
   actor: string | null;
   summary: Record<string, unknown>;
+  is_demo?: boolean;
+}
+
+function timelineEventLabel(event: string): string {
+  const labels: Record<string, string> = {
+    "resource.sample_condition_checked": "Sample condition review",
+    "resource.sample_details_reviewed": "Sample resource details review",
+    "resource.maintenance_hold_set": "Maintenance hold recorded",
+    "resource.created": "Resource added",
+    "resource.updated": "Resource details updated",
+  };
+  return labels[event] ?? event.replaceAll(".", " · ").replaceAll("_", " ");
 }
 
 interface AuditRecord {
@@ -104,9 +116,10 @@ export function AuditTimelinePage() {
                     <li key={`${event.timestamp}-${event.event}-${index}`} className="timeline-item">
                       <time>{formatIST(event.timestamp)}</time>
                       <div>
-                        <strong>{event.event}</strong>
+                        <div className="timeline-event-heading"><strong>{timelineEventLabel(event.event)}</strong>{event.is_demo && <Badge>Sample data</Badge>}</div>
                         <p>Actor: {event.actor ?? "System"}</p>
-                        <pre>{JSON.stringify(event.summary, null, 2)}</pre>
+                        {event.is_demo && <p className="timeline-demo-note">Synthetic audit history for demonstration; this is not a live user action.</p>}
+                        <details className="timeline-payload"><summary>Technical audit payload</summary><pre>{JSON.stringify(event.summary, null, 2)}</pre></details>
                       </div>
                     </li>
                   ))}

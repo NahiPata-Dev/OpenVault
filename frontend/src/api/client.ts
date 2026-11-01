@@ -2,6 +2,10 @@ import type { APIErrorDetail, APIErrorPayload } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_URL?.replace(/\/$/, "") || "/api";
 
+export function apiUrl(path: string): string {
+  return `${API_BASE}${path}`;
+}
+
 export class ApiError extends Error {
   readonly code: string;
   readonly status: number;
@@ -46,7 +50,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   let response: Response;
   try {
-    response = await fetch(`${API_BASE}${path}`, {
+    response = await fetch(apiUrl(path), {
       ...options,
       headers,
       credentials: "include",

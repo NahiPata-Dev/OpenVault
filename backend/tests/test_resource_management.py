@@ -124,6 +124,21 @@ def test_seed_has_detailed_resources_and_deterministic_sample_records(client):
         assert all(row.decisions[0].explanation for row in waitlisted_rows)
 
 
+def test_resource_timeline_marks_synthetic_sample_events(manager_login):
+    response = manager_login.get(
+        f"/api/resources/{RESOURCE_IDS['printer']}/timeline"
+    )
+
+    assert response.status_code == 200, response.text
+    sample_event = next(
+        item
+        for item in response.json()["items"]
+        if item["event"] == "resource.sample_condition_checked"
+    )
+    assert sample_event["is_demo"] is True
+    assert sample_event["summary"]["sample_data"] is True
+
+
 def test_resource_search_details_and_manager_policy_versioning(manager_login):
     camera_id = RESOURCE_IDS["camera"]
     before_response = manager_login.get(f"/api/resources/{camera_id}")

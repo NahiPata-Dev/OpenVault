@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from sqlalchemy import select
 
-from app.models import Resource, ResourcePolicy, User
+from app.models import AccountProfile, Resource, ResourcePolicy, User
 from app.schemas import ResourceMatchResult
 from app.seed import DEMO_USER_IDS, RESOURCE_IDS
 from app.services.ai_provider import validate_provider_result
@@ -121,10 +121,15 @@ def test_overdue_maintenance_hold_recommendation_is_source_linked(requester_logi
 
 
 def test_deterministic_matching_and_hallucinated_id_fallback(requester_login):
+    with requester_login.app.state.session_factory() as session:
+        profile = session.get(AccountProfile, DEMO_USER_IDS["requester_a"])
+        profile.intended_use = "Soldering electronics"
+        session.commit()
+
     response = requester_login.post(
         "/api/ai/match",
         json={
-            "goal": "oscilloscope measurement",
+            "goal": "electronics",
             "constraints": {"categories": ["electronics"], "capabilities": []},
         },
     )
@@ -132,6 +137,8 @@ def test_deterministic_matching_and_hallucinated_id_fallback(requester_login):
     body = response.json()
     returned_ids = {item["resource_id"] for item in body["candidates"]}
     assert RESOURCE_IDS["oscilloscope"] in returned_ids
+    assert body["candidates"][0]["resource_id"] == RESOURCE_IDS["bench"]
+    assert "fits your profile" in body["candidates"][0]["explanation"]
     assert body["source"] == "deterministic"
     assert "suggestions only" in body["disclosure"]
 
@@ -155,6 +162,55 @@ def test_deterministic_matching_and_hallucinated_id_fallback(requester_login):
     checked = validate_provider_result(invalid_provider_result, returned_ids, fallback)
     assert checked.source == "deterministic_fallback"
     assert checked.candidates == []
+
+
+def test_resource_matching_uses_whole_terms_not_substrings(requester_login):
+    response = requester_login.post(
+        "/api/ai/match",
+        json={"goal": "scope", "constraints": {}},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["candidates"] == []
+
+    variant_response = requester_login.post(
+        "/api/ai/match",
+        json={"goal": "3D-printed prototype", "constraints": {}},
+    )
+
+    assert variant_response.status_code == 200, variant_response.text
+    assert RESOURCE_IDS["printer"] in {
+        item["resource_id"] for item in variant_response.json()["candidates"]
+    }
+
+
+def test_resource_matching_accepts_typos_and_multilingual_queries(requester_login):
+    typo_response = requester_login.post(
+        "/api/ai/match",
+        json={"goal": "elctronics lab", "constraints": {}},
+    )
+    hindi_response = requester_login.post(
+        "/api/ai/match",
+        json={"goal": "मुझे इलेक्ट्रॉनिक्स प्रयोगशाला चाहिए", "constraints": {}},
+    )
+    spanish_response = requester_login.post(
+        "/api/ai/match",
+        json={"goal": "Necesito una impresora para un prototipo", "constraints": {}},
+    )
+    french_response = requester_login.post(
+        "/api/ai/match",
+        json={"goal": "Je cherche le laboratoire d'électronique", "constraints": {}},
+    )
+
+    for response in (typo_response, hindi_response, spanish_response, french_response):
+        assert response.status_code == 200, response.text
+    for response in (typo_response, hindi_response, french_response):
+        candidate_ids = {item["resource_id"] for item in response.json()["candidates"]}
+        assert RESOURCE_IDS["bench"] in candidate_ids
+        assert RESOURCE_IDS["oscilloscope"] in candidate_ids
+    assert RESOURCE_IDS["printer"] in {
+        item["resource_id"] for item in spanish_response.json()["candidates"]
+    }
 
 
 def test_demo_reset_reseeds_only_demo_rows_and_is_admin_only(client):

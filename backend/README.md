@@ -32,6 +32,26 @@ list of exact frontend origins (for example `https://openvault.example.com`).
 `DEMO_MODE=true` enables the restricted
 demo-reset endpoint and should not be enabled in a production environment.
 
+Google and LinkedIn sign-in are optional OIDC providers. Configure the matching
+`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` or `LINKEDIN_CLIENT_ID` /
+`LINKEDIN_CLIENT_SECRET`, set `OAUTH_REDIRECT_BASE_URL` to the public API origin
+and `FRONTEND_BASE_URL` to the frontend origin, and register
+`{OAUTH_REDIRECT_BASE_URL}/api/auth/{provider}/callback` with each provider.
+Provider sign-in accepts only verified emails already registered in OpenVault;
+new users should create an account first. Unconfigured providers are not shown.
+
+AI chat uses a server-side OpenAI-compatible provider. Set `OPENROUTER_API_KEY`
+for OpenRouter (default model `openai/gpt-4o-mini`), or set `AI_API_KEY` and
+`AI_BASE_URL` / `AI_MODEL` for another compatible provider. Optional OpenRouter
+settings are `OPENROUTER_MODEL`, `OPENROUTER_SITE_URL`, and `OPENROUTER_APP_NAME`.
+Store the key only in the backend environment or deployment secret manager; do
+not use a `VITE_` variable or commit it. The recent chat, profile intended-use
+text, and relevant same-organization resource details are sent to that provider
+to generate replies. AI chat stays disabled until a provider is configured.
+Configure these values in the backend process environment or a deployment secret
+manager. A local `.env` file is git-ignored but is not loaded automatically by
+the API process.
+
 `DATABASE_URL` defaults to `sqlite:///./openvault.db`. At startup, the app
 creates the schema and seeds the deterministic DEMO records only when the
 database has no users. Initial seeding and forced demo reseeding run in one
